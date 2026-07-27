@@ -1,4 +1,4 @@
-@rendermode @(new InteractiveServerRenderMode(prerender: false))
+﻿@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @page "/aftpacheckenroll"
 
 
@@ -170,6 +170,7 @@
                     aftCheckEnrollDto.ConsumerAuthenticationInformation.ReferenceId = consumerAuthenticationInformation.ReferenceId;
                     aftCheckEnrollDto.ConsumerAuthenticationInformation.TransactionMode = "eCommerce";
                     aftCheckEnrollDto.ConsumerAuthenticationInformation.DeviceChannel = "BROWSER";
+                    // Derive from the current origin (works locally and behind any public host's proxy)
                     aftCheckEnrollDto.ConsumerAuthenticationInformation.ReturnUrl = new Uri(new Uri(Navigation.BaseUri), "stepup-callback").ToString();
 
                 }
