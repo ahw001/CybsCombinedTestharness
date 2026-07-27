@@ -1,3 +1,0 @@
-- [.NET 10 SDK workaround](dotnet10-sdk-workaround.md) — dotnet-10.0 module installs SDK 10.0.101; must use full nix store path and update global.json to rollForward latestPatch
-- [Razor SDK 10.0.101 bug](razor-sdk-bug.md) — SDK 10.0.101 Razor source generator misplaces @code blocks inside BuildRenderTree when static markup follows an @if/else chain; fix by moving @code to a .razor.cs code-behind file
-- [Git history reconciliation](git-history-reconciliation.md) — shallow/grafted clone causes gitPull to fail with MERGE_CONFLICT when remote has diverged; fix by resetting to origin/main and reapplying Replit-specific files
