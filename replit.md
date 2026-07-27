@@ -10,13 +10,14 @@ Single-host .NET 10 Blazor Server + Minimal API test harness for CyberSource pay
 
 ## Running on Replit
 
-The workflow uses the full nix store path because the `dotnet-10.0` module doesn't update PATH until a new shell session:
+The workflow resolves `dotnet` at startup to avoid breakage if the nix store hash changes (e.g. on SDK upgrades):
 
 ```
-cd CybsClient && ASPNETCORE_URLS=http://0.0.0.0:5000 \
-  /nix/store/5hfn7q3adjwa8dh4yhhw1ip8njcbs7vs-dotnet-sdk-wrapped-10.0.101/bin/dotnet \
-  run --no-launch-profile
+sh -c 'DOTNET=$(which dotnet 2>/dev/null || find /nix/store -name dotnet -path "*/dotnet-sdk-wrapped*" | head -1) \
+  && cd CybsClient && ASPNETCORE_URLS=http://0.0.0.0:5000 $DOTNET run --no-launch-profile'
 ```
+
+When Replit upgrades to .NET 10.0.300+, `which dotnet` will resolve correctly and the `find` fallback will be unused — at that point the command can be simplified to `dotnet run`.
 
 ## SDK Notes
 

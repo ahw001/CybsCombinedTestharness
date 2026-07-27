@@ -2,4 +2,5 @@
 set -e
 
 # Restore NuGet packages after any merge that touches .csproj or package references.
-/nix/store/5hfn7q3adjwa8dh4yhhw1ip8njcbs7vs-dotnet-sdk-wrapped-10.0.101/bin/dotnet restore CybsClient/CybsClient.csproj
+DOTNET=$(which dotnet 2>/dev/null || find /nix/store -name dotnet -path "*/dotnet-sdk-wrapped*" | head -1)
+$DOTNET restore CybsClient/CybsClient.csproj
