@@ -4,3 +4,4 @@ obj/
 *.user
 logs/
 TestResults/
+dist/

@@ -4,8 +4,9 @@ modules = ["dotnet-10.0"]
 channel = "stable-24_05"
 
 [deployment]
-run = ["sh", "-c", "cd CybsClient && ASPNETCORE_URLS=http://0.0.0.0:5000 /nix/store/5hfn7q3adjwa8dh4yhhw1ip8njcbs7vs-dotnet-sdk-wrapped-10.0.101/bin/dotnet run --no-launch-profile"]
+run = ["sh", "-c", "DOTNET=$(which dotnet 2>/dev/null || find /nix/store -maxdepth 5 -name dotnet -path '*/dotnet-sdk-wrapped*' 2>/dev/null | head -1) && cd dist && ASPNETCORE_URLS=http://0.0.0.0:5000 $DOTNET CybsClient.dll"]
 deploymentTarget = "vm"
+build = ["sh", "-c", "DOTNET=$(which dotnet 2>/dev/null || find /nix/store -maxdepth 5 -name dotnet -path '*/dotnet-sdk-wrapped*' 2>/dev/null | head -1) && $DOTNET publish CybsClient/CybsClient.csproj -c Release -o dist"]
 
 [workflows]
 runButton = "Project"
@@ -25,7 +26,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd CybsClient && ASPNETCORE_URLS=http://0.0.0.0:5000 /nix/store/5hfn7q3adjwa8dh4yhhw1ip8njcbs7vs-dotnet-sdk-wrapped-10.0.101/bin/dotnet run --no-launch-profile"
+args = "sh -c 'DOTNET=$(which dotnet 2>/dev/null || find /nix/store -name dotnet -path \"*/dotnet-sdk-wrapped*\" | head -1) && cd CybsClient && ASPNETCORE_URLS=http://0.0.0.0:5000 $DOTNET run --no-launch-profile'"
 waitForPort = 5000
 
 [workflows.workflow.metadata]
