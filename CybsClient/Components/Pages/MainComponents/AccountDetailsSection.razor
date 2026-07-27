@@ -1,0 +1,51 @@
+<hr class="my-4">
+
+<InputRadioGroup @bind-Value="@Customer!.PaymentMethod">
+    <h4 class="mb-3">Payment</h4>
+    @foreach (var method in PaymentMethods)
+    {
+        <div class="form-check">
+            <InputRadio Value="@method" />
+            @method
+        </div>
+    }
+</InputRadioGroup>
+
+<hr class="my-4">
+
+<div class="d-flex">
+    <div class="col-md-6 me-2">
+        <label for="cc-name" class="form-label">Name on card</label>
+        <InputText @bind-Value="Customer.FullName" class="form-control" id="cc-name" placeholder="" />
+        <small class="text-body-secondary">Full name as displayed on card</small>
+        <ValidationMessage For="() => Customer.FullName" />
+    </div>
+    <div class="col-md-6 me-2">
+        <label for="cc-number" class="form-label">Credit card number</label>
+        <InputText @bind-Value="Customer.AccountNumber" class="form-control" id="cc-number" placeholder="" />
+        <ValidationMessage For="() => Customer.AccountNumber" />
+    </div>
+</div>
+
+<div class="d-flex">
+    <div class="col-md-3 me-auto">
+        <label for="cc-exp-month" class="form-label">Exp Month</label>
+        <InputText @bind-Value="Customer.ExpMonth" class="form-control" id="cc-exp-month" placeholder="" />
+        <ValidationMessage For="() => Customer.ExpMonth" />
+    </div>
+    <div class="col-md-3 me-auto">
+        <label for="cc-exp-year" class="form-label">Exp Year</label>
+        <InputText @bind-Value="Customer.ExpYear" class="form-control" id="cc-exp-year" placeholder="" />
+        <ValidationMessage For="() => Customer.ExpYear" />
+    </div>
+    <div class="col-md-3 me-auto">
+        <label for="cc-cvv" class="form-label">CVV</label>
+        <InputText @bind-Value="Customer.Cvv" class="form-control" id="cc-cvv" placeholder="" />
+        <ValidationMessage For="() => Customer.Cvv" />
+    </div>
+</div>
+
+@code {
+    [Parameter] public B2cCustomer? Customer { get; set; }
+    [Parameter] public string[] PaymentMethods { get; set; } = Array.Empty<string>();
+}

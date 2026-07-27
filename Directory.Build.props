@@ -1,0 +1,8 @@
+<Project>
+  <ItemGroup>
+    <!-- No fixed SQLitePCLRaw.lib.e_sqlite3 version exists yet (tracked upstream: dotnet/efcore#38257).
+         Root-level because TreatWarningsAsErrors in CybsClass.WebApi.Service would turn the NU1903
+         audit warning into a build error anywhere the SQLite provider surfaces transitively. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
+  </ItemGroup>
+</Project>

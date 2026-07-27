@@ -1,0 +1,188 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/boarding/networktokenform/{MerchantId:int}"
+
+@using CybsClient.Model.Cybersource.Boarding
+@using CybsClient.Services.Utilities
+@using System.Text.Json.Nodes
+
+@inject NavigationManager Navigation
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/boarding/dashboard">Boarding Dashboard</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Network Token Enrollment</li>
+    </ol>
+</nav>
+<h2>Network Token Enrollment</h2>
+<p class="text-muted">
+    Configure and submit Token Management / Network Token boarding for transacting merchant <strong>@MerchantId</strong>.
+    This is the only Token Management flow — it boards directly to CyberSource's PECS endpoint, independent of the
+    general "Board to Cybersource" merchant flow.
+</p>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible">
+        @_statusMessage
+        <button type="button" class="btn-close" @onclick="() => _statusMessage = string.Empty"></button>
+    </div>
+}
+
+@if (_loading)
+{
+    <p class="text-muted">Loading...</p>
+}
+else if (_dto is null)
+{
+    <div class="alert alert-warning">Could not load or create a Token Management subscription for this merchant.</div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(_dto.CybersourceBoardingStatus))
+    {
+        <div class="alert @(_dto.CybersourceBoardingStatus == "BOARDED" ? "alert-success" : "alert-warning") mb-3">
+            CyberSource Status: <strong>@_dto.CybersourceBoardingStatus</strong>
+            @if (_dto.SubmittedAt is not null)
+            {
+                <span class="ms-2 small text-muted">Submitted: @_dto.SubmittedAt.Value.ToString("yyyy-MM-dd HH:mm") UTC</span>
+            }
+        </div>
+    }
+
+    <div class="card mb-3">
+        <div class="card-header d-flex align-items-center gap-2">
+            <b>Token Management</b>
+            <div class="form-check form-switch mb-0 ms-2">
+                <input type="checkbox" class="form-check-input" id="enabled" @bind="_dto.Enabled" />
+                <label class="form-check-label" for="enabled">Enabled</label>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Organization ID</label>
+                    <input class="form-control" @bind="_dto.OrganizationId" />
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Website URL</label>
+                    <input class="form-control" @bind="_dto.WebsiteUrl" placeholder="https://..." />
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Business Name</label>
+                    <input class="form-control" @bind="_dto.BusinessName" />
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Doing Business As</label>
+                    <input class="form-control" @bind="_dto.DoingBusinessAs" />
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Acquirer Merchant ID</label>
+                    <input class="form-control" @bind="_dto.AcquirerMerchantId" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header"><b>Fixed Configuration</b> <span class="text-muted small">— sent as-is on every submission, not editable here</span></div>
+        <div class="card-body">
+            <div class="row g-2 small">
+                <div class="col-md-4">Vault Location: <strong>GDC</strong></div>
+                <div class="col-md-4">Default Token Type: <strong>CUSTOMER</strong></div>
+                <div class="col-md-4">Card Number Masking: <strong>FIRST_6_LAST_4</strong></div>
+                <div class="col-md-4">Customer Token Format: <strong>32_HEX</strong></div>
+                <div class="col-md-4">Payment Instrument Token Format: <strong>32_HEX</strong></div>
+                <div class="col-md-4">Instrument Identifier Card Format: <strong>19_DIGIT_LAST_4</strong></div>
+                <div class="col-md-4">Instrument Identifier Bank Account Format: <strong>32_HEX</strong></div>
+                <div class="col-md-4">Address: <strong>US / ORMOND BEACH</strong></div>
+                <div class="col-md-4">Acquirer ID: <strong>40010052242</strong></div>
+                <div class="col-md-12">Visa &amp; Mastercard network token enrollment, notifications, payment credentials, and transactional tokens are all enabled.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap mb-4">
+        <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
+            @(_saving ? "Saving..." : "Save")
+        </button>
+        <button class="btn btn-success" @onclick="SubmitToCybersourceAsync" disabled="@(_submitting || _dto.Enabled != true)">
+            @(_submitting ? "Submitting..." : "Submit to CyberSource (PECS)")
+        </button>
+        <a class="btn btn-outline-secondary" href="/boarding/dashboard">Back to Dashboard</a>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_rawResponse))
+    {
+        <div class="card mb-3">
+            <div class="card-header"><b>Last API Response</b></div>
+            <div class="card-body">
+                <pre class="font-monospace small mb-0" style="max-height:400px;overflow:auto">@_rawResponse</pre>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int MerchantId { get; set; }
+
+    private BoardingTokenManagementSubscriptionDto? _dto;
+    private bool _loading       = true;
+    private bool _saving        = false;
+    private bool _submitting    = false;
+    private string _statusMessage = string.Empty;
+    private bool   _isError       = false;
+    private string _rawResponse   = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        var r = await CallMinAPIs.GetOrCreateTokenManagementForMerchantAsync(MerchantId);
+        if (r.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Failed to load Token Management subscription: {r.Error.Message}";
+            _loading = false;
+            return;
+        }
+        _dto = r.Data;
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_dto is null) return;
+        _saving = true;
+        try
+        {
+            var r = await CallMinAPIs.SaveTokenManagementAsync(_dto);
+            if (r.Error is not null) { _isError = true; _statusMessage = $"Save failed: {r.Error.Message}"; return; }
+            _isError = false;
+            _statusMessage = "Token Management fields saved successfully.";
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task SubmitToCybersourceAsync()
+    {
+        _submitting = true;
+        _rawResponse = string.Empty;
+        try
+        {
+            var r = await CallMinAPIs.SubmitNtTmsToCybersourceAsync(MerchantId);
+            if (r.Error is not null)
+            {
+                _isError = true;
+                _statusMessage = $"Submission failed: {r.Error.Message}";
+                _rawResponse   = r.ResponseJson?.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) ?? string.Empty;
+                return;
+            }
+            _isError = false;
+            _statusMessage = "Token Management submitted to CyberSource successfully.";
+            _rawResponse   = r.ResponseJson?.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) ?? string.Empty;
+
+            // Reload to reflect updated CybersourceBoardingStatus / SubmittedAt
+            await OnParametersSetAsync();
+        }
+        finally { _submitting = false; }
+    }
+}

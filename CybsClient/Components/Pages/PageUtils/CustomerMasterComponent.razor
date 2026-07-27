@@ -1,0 +1,608 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+@inject NavigationManager Navigation
+@inject ISessionTransactions sessionTransactions
+@inject ICardService cardService
+
+@if (!ShowProcessing)
+{
+    @if (FormElements is not null)
+    {
+        @if (SafeFormElements.Contains("ShowCreateToken"))
+        {
+            <CreateTokenSection @bind-IsChecked="IsChecked"
+                                @bind-IncludeAuth="IncludeAuth"
+                                @bind-InstIdChecked="InstIdChecked"
+                                @bind-ShippingInstChecked="ShippingInstChecked"
+                                @bind-PayInstChecked="PayInstChecked"
+                                @bind-CustInstChecked="CustInstChecked"
+                                ButtonText="@ButtonText"
+                                Error="@error"
+                                Customer="customer"
+                                PopulateForm="PopulateForm"
+                                HandleValidSubmit="HandleValidSubmit" />
+        }
+
+        @if (SafeFormElements.Contains("ShowStandaloneCredit") || SafeFormElements.Contains("ShowAuthCapture") || SafeFormElements.Contains("ShowDefaults"))
+        {
+            <TransactionDefaultsSection @bind-IsChecked="IsChecked"
+                                        @bind-ShowPosMoto="ShowPosMoto"
+                                        @bind-OverrideTotal="OverrideTotal"
+                                        @bind-ManualTotal="ManualTotal"
+                                        NewTransaction="newTransaction"
+                                        ShowPosCancel="ShowPosCancel"
+                                        ShowAuthCapture='@SafeFormElements.Contains("ShowAuthCapture")'
+                                        ShowCloudPos='@SafeFormElements.Contains("ShowCloudPos")'
+                                        ShowCart='@SafeFormElements.Contains("ShowCart")'
+                                        ButtonText="@ButtonText"
+                                        Error="@error"
+                                        Customer="customer"
+                                        PopulateForm="PopulateForm"
+                                        HandleValidSubmit="HandleValidSubmit"
+                                        HandleValidCloudPosCancel="HandleValidCloudPosCancel" />
+        }
+
+        @if (SafeFormElements.Contains("ShowMainForm"))
+        {
+            <MainFormSection @ref="_mainFormSection"
+                             SafeFormElements="SafeFormElements"
+                             CartService="cartService"
+                             CartServiceChanged="HandleCartServiceChanged"
+                             FormAmountChanged="HandleFormAmountChanged"
+                             CartErrorChanged="HandleCartErrorChanged"
+                             OverrideTotal="OverrideTotal"
+                             Customer="customer"
+                             ButtonText="@ButtonText"
+                             Error="@error"
+                             PreAuthOrOnDevice="preAuthOrOnDevice"
+                             PaymentMethods="paymentMethods"
+                             InvoiceType="invoiceType"
+                             HandleValidSubmit="HandleValidSubmit" />
+        }
+    }
+    else
+    {
+        <p>Loading...</p>
+    }
+}
+else
+{
+    <div class="text-center">
+        <h3>Processing...</h3>
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+
+@code {
+
+    private bool IsChecked { get; set; } = false;
+    private bool IncludeAuth { get; set; } = false;
+    public bool InstIdChecked { get; set; } = false;
+    public bool ShippingInstChecked { get; set; } = false;
+    public bool PayInstChecked { get; set; } = false;
+    public bool CustInstChecked { get; set; } = false;
+    public bool newTransaction { get; set; } = true;
+    private bool ShowPosCancel { get; set; } = false;
+    private bool ShowPosMoto { get; set; } = false;
+    private bool ShowProcessing { get; set; } = false;
+    private bool OverrideTotal { get; set; } = false;
+    private decimal? ManualTotal { get; set; }
+
+    public enum Option
+    {
+        First,
+        Second,
+        Third
+    }
+
+    private string SelectedOption { get; set; } = "First";
+
+    private decimal? FormAmount = 0;
+
+    private string[] paymentMethods = new string[] { "Credit/Debit", "PayPal" };
+
+    private string[] preAuthOrOnDevice = new string[] { "Standard", "PreAuthOnly", "PreAuthTip", "OnDeviceTip" };
+
+    private string[] invoiceType = new string[] { "Draft", "SendImmediately" };
+
+    private List<string> TokenTypes = new();
+
+    [Parameter]
+    public string? ButtonText { get; set; }
+
+    [Parameter]
+    public B2cCustomer? FormCustomer { get; set; }
+
+    [Parameter, EditorRequired]
+    public List<string>? FormElements { get; set; } = new();
+
+    private List<string> SafeFormElements => FormElements ?? new List<string>();
+
+    [Parameter]
+    public EventCallback<B2cCustomer> ValidSubmit { get; set; }
+
+    [SupplyParameterFromForm]
+    public B2cCustomer? customer { get; set; }
+
+    private string? error;
+
+    Decimal? localMinimumPartialAmount = 0;
+
+    private JsonNode? _transactionJson = null;
+
+    private List<PayerAuthCardSampleDto> _cardList = new();
+
+    private DBRandomCart cartService = new DBRandomCart();
+
+    private MainFormSection? _mainFormSection;
+
+    private ISessionTransactions _sessionTransactions = new SessionTransactions();
+
+    private SampleInvoiceDetailDto sampleInvoiceDetailDto = new SampleInvoiceDetailDto();
+    private LineItems lineItem = new LineItems();
+
+    private List<SampleInvoiceDetailDto> sampleInvoiceDetailDtos = new List<SampleInvoiceDetailDto>();
+
+    private bool containsError = false;
+    private static List<BasicErrorInfo> basicErrorInfos = new List<BasicErrorInfo>();
+
+    protected override void OnParametersSet()
+    {
+        if (cardService is not null && cardService.Cards is not null)
+        {
+            _cardList = cardService.Cards.ToList();
+        }
+
+
+
+        if (FormCustomer is not null)
+        {
+            customer = FormCustomer;
+            if (customer.Cart is not null && customer.Cart.Count > 0)
+            {
+                cartService.cart = customer.Cart.ToList();
+                cartService.TotalPrice = customer.TotalAmount;
+                cartService.TotalNumberofItems = customer.Cart.Count;
+            }
+        }
+        else if (customer is null)
+        {
+            customer = new B2cCustomer();
+            customer.InvoiceInformation = new();
+            customer.AmountDetails = new();
+            customer.Freight = new();
+            customer.LineItem = new();
+        }
+
+        EnsureCustomerInitialized();
+
+        try
+        {
+            if (FormElements is null)
+            {
+                Console.WriteLine($"FormElements is null? {FormElements is null}");
+                throw new InvalidOperationException("FormElements must be provided by the parent component.");
+            }
+            else
+            {
+                Console.WriteLine($"FormElements is not null?");
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+
+        if (FormCustomer is not null)
+        {
+            customer = FormCustomer;
+        }
+        else if (customer is null)
+        {
+            customer = new B2cCustomer();
+            customer.InvoiceInformation = new();
+            customer.AmountDetails = new();
+            customer.Freight = new();
+            customer.LineItem = new();
+        }
+
+        EnsureCustomerInitialized();
+
+        try
+        {
+            if (customer == null)
+            {
+                customer = new B2cCustomer();
+                customer.InvoiceInformation = new();
+                customer.AmountDetails = new();
+                customer.Freight = new();
+                customer.LineItem = new();
+            }
+
+            if (FormCustomer is not null)
+            {
+                customer = FormCustomer;
+                customer.InvoiceInformation = new();
+                customer.AmountDetails = new();
+                customer.Freight = new();
+                customer.LineItem = new();
+                if (customer.Cart is not null && customer.Cart.Count > 0)
+                {
+                    cartService.cart = customer.Cart.ToList();
+                    cartService.TotalPrice = customer.TotalAmount;
+                    cartService.TotalNumberofItems = customer.Cart.Count;
+                }
+            }
+
+            if (SafeFormElements.Contains("ShowTmsToken") && FormCustomer is not null
+                && FormCustomer.InstrumentIdentifier is not null)
+            {
+                customer.InstrumentIdentifier = FormCustomer.InstrumentIdentifier;
+            }
+
+
+            _sessionTransactions = sessionTransactions;
+
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+
+        StateHasChanged();
+    }
+
+    public void HandleValidCloudPosCancel()
+    {
+        Navigation.NavigateTo("/cloudposcancel");
+    }
+
+    public async Task HandleValidSubmit()
+    {
+        await Task.Delay(1);
+
+        newTransaction = false;
+        ShowPosCancel = false;
+        ShowPosMoto = false;
+        ShowProcessing = true;
+
+        await Task.Yield();
+
+        StateHasChanged();
+
+        try
+        {
+            if (customer is not null && customer.PreAuthOrOnDeviceTip == "PreAuthTip")
+            {
+                customer.PreAuthTip = true;
+            }
+            else if (customer is not null && customer.PreAuthOrOnDeviceTip == "OnDeviceTip")
+            {
+                customer.OnDeviceTip = true;
+            }
+            else if (customer is not null && customer.PreAuthOrOnDeviceTip == "PreAuthOnly")
+            {
+                customer.PreAuthOnly = true;
+            }
+
+            if (SafeFormElements.Contains("ShowCloudPosCancel"))
+            {
+                ShowPosCancel = true;
+            }
+
+            if (SafeFormElements.Contains("ShowCreateToken"))
+            {
+                if (InstIdChecked)
+                {
+                    TokenTypes.Add("instrumentIdentifier");
+                }
+
+                if (PayInstChecked)
+                {
+                    TokenTypes.Add("paymentInstrument");
+                }
+
+                if (ShippingInstChecked)
+                {
+                    TokenTypes.Add("shippingAddress");
+                }
+
+                if (CustInstChecked)
+                {
+                    TokenTypes.Add("customer");
+                }
+
+                if (customer is not null)
+                {
+                    customer.ActionTokenTypes = TokenTypes.ToArray();
+                }
+
+                if (customer is not null && IncludeAuth)
+                {
+                    Console.WriteLine($"IncludeAuth = {IncludeAuth}");
+                    customer.PerformZeroAuth = true;
+                }
+            }
+            if (customer is not null && SafeFormElements.Contains("ShowCloudPos") && ShowPosMoto)
+            {
+                customer.CloudPaymentMode = "MOTO";
+            }
+
+            if (customer == null)
+            {
+                Console.WriteLine("customer is null");
+            }
+            else
+            {
+                FormCustomer = customer;
+                if (OverrideTotal && SafeFormElements.Contains("ShowCart"))
+                {
+                    customer.Cart = new List<DBProduct>();
+                    cartService.cart = new List<DBProduct>();
+                    cartService.TotalPrice = ManualTotal ?? 0m;
+                    cartService.TotalNumberofItems = 0;
+                    customer.TotalAmount = ManualTotal ?? 0m;
+                }
+                else if (SafeFormElements.Contains("ShowCart"))
+                {
+                    customer.Cart = cartService.cart;
+                }
+                Console.WriteLine($"Customer First Name = {customer.FirstName}");
+                Console.WriteLine($"FormCustomer First Name = {FormCustomer.FirstName}");
+                await ValidSubmit.InvokeAsync(FormCustomer);
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+
+        }
+    }
+
+    private async Task PopulateForm()
+    {
+        var existingCart = FormCustomer?.Cart is { Count: > 0 } ? FormCustomer.Cart.ToList() : null;
+        var existingTotal = FormCustomer?.TotalAmount;
+
+        cartService = new();
+        customer = new();
+
+        DateTime today = DateTime.Now;
+
+        try
+        {
+
+            if (SafeFormElements.Contains("ShowCreateToken"))
+            {
+                InstIdChecked = true;
+                ShippingInstChecked = true;
+                PayInstChecked = true;
+                CustInstChecked = true;
+            }
+
+            if (cardService is null || cardService.Cards is null)
+            {
+                Console.WriteLine("No cards found in card list - Is Practicle Apps Server Running");
+                error = "No cards found in card list - Is Practicle Apps Server Running";
+                SessionTransJson sessionResponse = new();
+                sessionResponse!.error = error;
+                sessionTransactions.AddTrans(sessionResponse);
+                Navigation.NavigateTo("/errorhandler");
+                return;
+            }
+
+            _cardList = cardService.Cards.ToList();
+
+            customer = await GeneralNetworkUtilities.PopulateBilling(_cardList);
+
+            if (customer == null || customer.Error is not null || customer.AccountNumber is null)
+            {
+                if (customer is not null && customer.Error is not null)
+                {
+                    error = customer.Error;
+                    error = customer.Error ?? "Failed to Complete Form Population - Likely PracticalApps server is not running";
+                }
+                else
+                {
+                    error = "Failed to Complete Form Population - Likely PracticalApps server is not running";
+                }
+                SessionTransJson sessionResponse = new();
+                sessionResponse!.error = error;
+                sessionTransactions.AddTrans(sessionResponse);
+                Navigation.NavigateTo("/errorhandler");
+            }
+            else
+            {
+                customer.CardType = AddCardType.SetCardType(customer.AccountNumber);
+                if (customer.CardType is null || customer.CardType.Contains("error"))
+                {
+                    throw new InvalidOperationException("Card Type Method Failed");
+                }
+            }
+
+            if (customer is not null && CustInstChecked)
+            {
+                Guid guid = Guid.NewGuid();
+                customer.MerchantCustomerID = guid.ToString();
+            }
+
+            try
+            {
+                if (existingCart is not null)
+                {
+                    cartService.cart = existingCart;
+                    cartService.TotalPrice = existingTotal;
+                    cartService.TotalNumberofItems = existingCart.Count;
+                }
+                else if (_mainFormSection is not null)
+                {
+                    await _mainFormSection.PopulateDefaultCartAsync();
+                }
+
+                if (cartService is not null && cartService is not null && cartService.TotalPrice >= 0M)
+                {
+                    Console.WriteLine($"Total Amount After Populate Cart: {cartService.TotalPrice}");
+                    if (customer is not null)
+                    {
+                        customer.TotalAmount = cartService.TotalPrice;
+                        Console.WriteLine($"customer Total Amount: {customer.TotalAmount}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"Cart service failed to initialize.");
+                    throw new InvalidOperationException("Cart Service Failed to Initialize");
+                }
+            }
+            catch (Exception ex)
+            {
+                error = $"Call for Sample Products Failed: {ex.Message}";
+                SessionTransJson sessionResponse = new();
+                sessionResponse!.error = error;
+                sessionTransactions.AddTrans(sessionResponse);
+                Navigation.NavigateTo("/errorhandler");
+            }
+
+            if (customer is not null && SafeFormElements.Contains("ShowInvoice"))
+            {
+                customer.InvoiceInformation = new();
+                customer.AmountDetails = new();
+                customer.Freight = new();
+                customer.LineItem = new();
+
+                localMinimumPartialAmount = cartService.TotalPrice;
+
+                try
+                {
+
+                    Random random = new Random();
+
+                    sampleInvoiceDetailDtos = await GeneralNetworkUtilities.GetSampleInvoices();
+
+                    if (cartService is not null && cartService.cart is not null)
+                    {
+                        DBProduct dBProduct = cartService.cart.FirstOrDefault()!;
+
+                        if (sampleInvoiceDetailDtos is not null && sampleInvoiceDetailDtos.Count > 0)
+                        {
+                            int randomNumber = random.Next(0, sampleInvoiceDetailDtos.Count);
+                            sampleInvoiceDetailDto = sampleInvoiceDetailDtos!.ElementAt(randomNumber)!;
+
+                            customer.CompanyName = sampleInvoiceDetailDto.CustomerInformationCompanyName;
+                            customer.InvoiceInformation!.InvoiceNumber = GeneralClientUtilities.GenerateRandom20DigitNumber();
+                            customer.InvoiceInformation.Description = "Test Invoice";
+                            customer.InvoiceInformation.DueDate = today.AddDays(30).ToShortDateString();
+                            customer.InvoiceInformation.DeliveryMode = "Email";
+                            customer.InvoiceInformation.AllowPartialPayments = "true";
+                            customer.AmountDetails.DiscountPercent = (0.03m).ToString();
+                            customer.AmountDetails!.DiscountAmount = (dBProduct.UnitPrice * Convert.ToDecimal(customer.AmountDetails.DiscountPercent)).ToString();
+                            customer.AmountDetails.SubAmount = (0.00m).ToString();
+                            customer.AmountDetails.MinimumPartialAmount = (localMinimumPartialAmount * .20m)?.ToString("0.##");
+                            customer.LineItem!.ProductSku = dBProduct.ProductSku;
+                            customer.LineItem!.UnitPrice = dBProduct.UnitPrice;
+                            customer.LineItem!.Quantity = 1;
+                            customer.LineItem!.TaxRate = 5.25m;
+                            customer.LineItem!.TaxAmount = dBProduct.UnitPrice * .0525m;
+                            customer.LineItem!.DiscountRate = 0.03m;
+                            customer.LineItem!.DiscountAmount = dBProduct.UnitPrice * customer.LineItem!.DiscountRate;
+                            customer.LineItem!.TotalAmount = dBProduct.UnitPrice - customer.LineItem!.DiscountAmount;
+                            customer.TaxDetailsType = sampleInvoiceDetailDto.OrderInformationAmountDetailsTaxDetailsType;
+                            customer.TaxDetailsRate = (0.03m).ToString();
+                            customer.TaxDetailsAmount = (dBProduct.UnitPrice * Convert.ToDecimal(customer.TaxDetailsRate)).ToString();
+                            customer.Freight!.Taxable = sampleInvoiceDetailDto.OrderInformationAmountDetailsFreightTaxable;
+                            customer.Freight.TaxRate = (0.02m).ToString();
+                        }
+                        else if (sampleInvoiceDetailDtos is null)
+                        {
+                            Console.WriteLine($"Sample Invoice Failed to Initialize");
+                            throw new InvalidOperationException("Sample Invoice Failed to Initialize");
+                        }
+                    }
+                    else if (cartService is null || cartService.cart is null)
+                    {
+                        Console.WriteLine($"Cart service failed to initialize.");
+                        throw new InvalidOperationException("Cart Service Failed to Initialize");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    error = $"Failed to Populate Invoice: {ex.Message}";
+                    SessionTransJson sessionResponse = new();
+                    sessionResponse!.error = error;
+                    sessionTransactions.AddTrans(sessionResponse);
+                    Navigation.NavigateTo("/errorhandler");
+                }
+            }
+
+
+
+            StateHasChanged();
+
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    private Task HandleCartServiceChanged(DBRandomCart? updatedCartService)
+    {
+        cartService = updatedCartService ?? new DBRandomCart();
+        return Task.CompletedTask;
+    }
+
+    private Task HandleFormAmountChanged(decimal? amount)
+    {
+        FormAmount = amount;
+        return Task.CompletedTask;
+    }
+
+    private Task HandleCartErrorChanged(string? cartError)
+    {
+        error = cartError;
+        return Task.CompletedTask;
+    }
+
+    private void EnsureCustomerInitialized()
+    {
+        if (customer == null)
+            customer = new B2cCustomer();
+        if (customer.InvoiceInformation == null)
+            customer.InvoiceInformation = new InvoiceInformation();
+        if (customer.AmountDetails == null)
+            customer.AmountDetails = new AmountDetails();
+        if (customer.Freight == null)
+            customer.Freight = new Freight();
+        if (customer.LineItem == null)
+            customer.LineItem = new LineItems();
+
+        customer.RequiresCardDetails = SafeFormElements.Contains("ShowAccountDetails");
+    }
+
+}

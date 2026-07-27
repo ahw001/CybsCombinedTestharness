@@ -1,0 +1,123 @@
+<FormSection Title="Use Defaults" HelpText="">
+    <div class="row">
+        <div class="col d-flex">
+            <div class="col-8">
+                <label class="form-check-label me-2" for="useDefaults"><b>Use Defaults:</b></label>
+            </div>
+            <div class="col-3 border d-flex justify-content-center align-items-center">
+                <input type="checkbox" @bind="IsChecked" @bind:after="() => IsCheckedChanged.InvokeAsync(IsChecked)" @onclick="PopulateForm" class="form-check-input" id="useDefaults" />
+            </div>
+        </div>
+        <div class="col d-flex">
+            @if (IsChecked)
+            {
+                <button class="w-100 btn btn-dark btn-lg" @onclick="HandleValidSubmit">@ButtonText</button>
+            }
+        </div>
+        @if (IsChecked && ShowCart)
+        {
+            <div class="col-12 mt-3">
+                <div class="row">
+                    <div class="col d-flex">
+                        <div class="col-8">
+                            <label class="form-check-label me-2" for="overrideTotal"><b>Override Cart Total:</b></label>
+                        </div>
+                        <div class="col-3 border d-flex justify-content-center align-items-center">
+                            <input type="checkbox" @bind="OverrideTotal" @bind:after="() => OverrideTotalChanged.InvokeAsync(OverrideTotal)" class="form-check-input" id="overrideTotal" />
+                        </div>
+                    </div>
+                    @if (OverrideTotal)
+                    {
+                        <div class="col d-flex align-items-center">
+                            <label class="form-label me-2 mb-0" for="manualTotal"><b>Amount:</b></label>
+                            <input type="number" step="0.01" min="0" @bind="ManualTotal" @bind:after="() => ManualTotalChanged.InvokeAsync(ManualTotal)" class="form-control" id="manualTotal" placeholder="0.00" />
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        <div class="col d-flex">
+            @if (NewTransaction && ShowAuthCapture)
+            {
+                <div class="col d-flex">
+                    <div class="col-8">
+                        <label class="form-check-label me-2" for="markForCapture"><b>Capture:</b></label>
+                    </div>
+                    <div class="col-3 border d-flex justify-content-center align-items-center">
+                        @if (Customer is not null)
+                        {
+                            <InputCheckbox @bind-Value="Customer.MarkedForCapture" class="form-check-input" id="markForCapture" />
+                        }
+                    </div>
+                </div>
+                <div class="col d-flex">
+                    <div class="col-8">
+                        <label class="form-check-label me-2" for="allowPartialAuth"><b>Allow Partial Auth:</b></label>
+                    </div>
+                    <div class="col-3 border d-flex justify-content-center align-items-center">
+                        @if (Customer is not null)
+                        {
+                            <InputCheckbox @bind-Value="Customer.AllowPartialAuth" class="form-check-input" id="allowPartialAuth" />
+                        }
+                    </div>
+                </div>
+            }
+            @if (ShowPosCancel)
+            {
+                <button class="w-100 btn btn-primary btn-lg" @onclick="HandleValidCloudPosCancel">CANCEL CLOUD POS TRANSACTION</button>
+            }
+            @if (Error is not null)
+            {
+                <div class="col-6">
+                    <strong class="alert-danger">@Error</strong>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Follow on Actions
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="tokencreate">New Token Create</a></li>
+                        <li><a class="dropdown-item" href="checkout">New Checkout</a></li>
+                    </ul>
+                </div>
+            }
+            @if (ShowCloudPos)
+            {
+                <div class="col-8">
+                    <label class="form-check-label me-2" for="showPosMoto"><b>MOTO Auth:</b></label>
+                </div>
+                <div class="col-2 me-2 border d-flex justify-content-center align-items-center">
+                    <input type="checkbox" @bind="ShowPosMoto" @bind:after="() => ShowPosMotoChanged.InvokeAsync(ShowPosMoto)" class="form-check-input" id="showPosMoto" />
+                </div>
+            }
+        </div>
+    </div>
+</FormSection>
+
+@code {
+    [Parameter] public bool IsChecked { get; set; }
+    [Parameter] public EventCallback<bool> IsCheckedChanged { get; set; }
+
+    [Parameter] public bool ShowPosMoto { get; set; }
+    [Parameter] public EventCallback<bool> ShowPosMotoChanged { get; set; }
+
+    [Parameter] public bool NewTransaction { get; set; }
+    [Parameter] public bool ShowPosCancel { get; set; }
+    [Parameter] public bool ShowAuthCapture { get; set; }
+    [Parameter] public bool ShowCloudPos { get; set; }
+    [Parameter] public bool ShowCart { get; set; }
+
+    [Parameter] public bool OverrideTotal { get; set; }
+    [Parameter] public EventCallback<bool> OverrideTotalChanged { get; set; }
+
+    [Parameter] public decimal? ManualTotal { get; set; }
+    [Parameter] public EventCallback<decimal?> ManualTotalChanged { get; set; }
+
+    [Parameter] public string? ButtonText { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public B2cCustomer? Customer { get; set; }
+
+    [Parameter] public EventCallback PopulateForm { get; set; }
+    [Parameter] public EventCallback HandleValidSubmit { get; set; }
+    [Parameter] public EventCallback HandleValidCloudPosCancel { get; set; }
+}

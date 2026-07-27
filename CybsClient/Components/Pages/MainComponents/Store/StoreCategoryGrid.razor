@@ -1,0 +1,36 @@
+@inject NavigationManager Nav
+
+<section class="py-5">
+    <div class="container">
+        <div class="d-flex flex-wrap justify-content-center gap-3">
+            @foreach (var cat in _categories)
+            {
+                <button class="btn btn-light d-flex flex-column align-items-center py-3 px-4 rounded-3 border"
+                        style="min-width: 110px; gap: 10px;"
+                        @onclick="() => SelectCategory(cat.Name)">
+                    @((MarkupString)cat.IconSvg)
+                    <span class="small fw-medium">@cat.Name</span>
+                </button>
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    private readonly List<Category> _categories = new()
+    {
+        new("Phones", @"<svg width=""28"" height=""28"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""1.8"" stroke-linecap=""round"" stroke-linejoin=""round""><rect x=""5"" y=""2"" width=""14"" height=""20"" rx=""2"" ry=""2""/><line x1=""12"" y1=""18"" x2=""12.01"" y2=""18""/></svg>"),
+        new("Smart Watches", @"<svg width=""28"" height=""28"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""1.8"" stroke-linecap=""round"" stroke-linejoin=""round""><rect x=""5"" y=""5"" width=""14"" height=""14"" rx=""3""/><path d=""M16 2H8l-1 3h10z""/><path d=""M8 22h8l1-3H7z""/></svg>"),
+        new("Game Consoles", @"<svg width=""28"" height=""28"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""1.8"" stroke-linecap=""round"" stroke-linejoin=""round""><rect x=""2"" y=""7"" width=""20"" height=""14"" rx=""2""/><path d=""M6 11h4m-2-2v4""/><circle cx=""17"" cy=""11"" r=""1"" fill=""currentColor""/><circle cx=""15"" cy=""13"" r=""1"" fill=""currentColor""/></svg>"),
+        new("Computers", @"<svg width=""28"" height=""28"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""1.8"" stroke-linecap=""round"" stroke-linejoin=""round""><rect x=""2"" y=""3"" width=""20"" height=""14"" rx=""2""/><line x1=""8"" y1=""21"" x2=""16"" y2=""21""/><line x1=""12"" y1=""17"" x2=""12"" y2=""21""/></svg>"),
+        new("Headphones", @"<svg width=""28"" height=""28"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""1.8"" stroke-linecap=""round"" stroke-linejoin=""round""><path d=""M3 18v-6a9 9 0 0 1 18 0v6""/><path d=""M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z""/></svg>"),
+    };
+
+    private void SelectCategory(string name)
+    {
+        var slug = name.ToLower().Replace(" ", "-");
+        Nav.NavigateTo($"/store/category/{slug}");
+    }
+
+    private record Category(string Name, string IconSvg);
+}

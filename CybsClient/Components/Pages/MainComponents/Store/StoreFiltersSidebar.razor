@@ -1,0 +1,61 @@
+<div class="accordion" id="storeFiltersAccordion">
+    @foreach (var group in FilterGroups)
+    {
+        var collapseId = $"storeFilter-{group.Name.Replace(" ", "-").ToLower()}";
+        <div class="accordion-item border-0 border-bottom">
+            <h2 class="accordion-header">
+                <button class="accordion-button @(group.IsOpen ? "" : "collapsed") bg-transparent fw-medium py-2"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#@collapseId"
+                        aria-expanded="@(group.IsOpen ? "true" : "false")">
+                    @group.Name
+                </button>
+            </h2>
+            <div id="@collapseId" class="accordion-collapse collapse @(group.IsOpen ? "show" : "")">
+                <div class="accordion-body pt-0">
+                    @if (group.HasSearch)
+                    {
+                        <input type="text" class="form-control form-control-sm mb-2"
+                               placeholder="Search"
+                               @bind="group.SearchText" @bind:event="oninput" />
+                    }
+                    @foreach (var opt in FilteredOptions(group))
+                    {
+                        <div class="form-check mb-1">
+                            <input class="form-check-input" type="checkbox"
+                                   checked="@opt.IsChecked"
+                                   @onchange="() => ToggleOption(opt)" />
+                            <label class="form-check-label small">
+                                @opt.Label
+                                @if (opt.Count.HasValue)
+                                {
+                                    <span class="text-muted ms-1">(@opt.Count)</span>
+                                }
+                            </label>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public List<FilterGroup> FilterGroups { get; set; } = new();
+    [Parameter] public EventCallback OnFiltersChanged { get; set; }
+
+    private void ToggleOption(FilterOption opt)
+    {
+        opt.IsChecked = !opt.IsChecked;
+        OnFiltersChanged.InvokeAsync();
+    }
+
+    private IEnumerable<FilterOption> FilteredOptions(FilterGroup group)
+    {
+        if (string.IsNullOrWhiteSpace(group.SearchText))
+            return group.Options;
+        return group.Options.Where(o =>
+            o.Label.Contains(group.SearchText, StringComparison.OrdinalIgnoreCase));
+    }
+}

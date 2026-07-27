@@ -1,0 +1,273 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/partialauth"
+
+@inject NavigationManager Navigation
+
+@inject ICartService cartService
+@inject ISessionTransactions sessionTransactions
+@inject ICustomersScoped customersScoped
+
+<title>Partial Authorization - Pay Remaining Balance</title>
+
+<div class="py-1 text-center">
+    <h2>Partial Authorization — Pay Remaining Balance</h2>
+</div>
+
+<hr class="my-4">
+
+<div>
+    <div class="row g-5">
+        @if (!string.IsNullOrEmpty(originalTransactionId))
+        {
+            <div class="col-12">
+                <div class="alert alert-info shadow-sm" role="alert">
+                    <h5 class="alert-heading">Original Transaction Summary</h5>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <strong>Transaction ID:</strong><br />
+                            <span class="text-break">@originalTransactionId</span>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Original Amount:</strong><br />
+                            <span class="fs-5">$@requestedAmount</span>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Authorized:</strong><br />
+                            <span class="fs-5 text-success">$@authorizedAmount</span>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Remaining Balance:</strong><br />
+                            <span class="fs-5 text-danger fw-bold">$@remainingBalance</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (Show)
+        {
+            <CustomerMasterComponent ButtonText="Submit Payment for Balance" FormElements="PartialAuthFormElements" FormCustomer="b2CCustomer" ValidSubmit="Submit"></CustomerMasterComponent>
+        }
+
+        <FormSection>
+            @if (error is not null)
+            {
+                <div class="col-6">
+                    <strong class="alert-danger">@error</strong>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Follow on Actions
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="reversal">Reverse Original Partial Auth</a></li>
+                        <li><a class="dropdown-item" href="checkout">New Checkout</a></li>
+                    </ul>
+                </div>
+            }
+        </FormSection>
+
+        <div class="col-12">
+            <a href="reversal" class="btn btn-outline-danger">
+                <i class="bi bi-x-circle me-1"></i>Cancel — Reverse Partial Authorization
+            </a>
+        </div>
+    </div>
+
+    <footer class="my-5 pt-5 text-body-secondary text-center text-small">
+        <p class="mb-1">&copy; 2017–2024 Company Name</p>
+        <ul class="list-inline">
+            <li class="list-inline-item"><a href="#">Privacy</a></li>
+            <li class="list-inline-item"><a href="#">Terms</a></li>
+            <li class="list-inline-item"><a href="#">Support</a></li>
+        </ul>
+    </footer>
+</div>
+
+@code {
+    private bool Show = true;
+    private bool containsError = false;
+
+    List<string> PartialAuthFormElements = new List<string> { "ShowMainForm", "ShowAccountDetails", "ShowDefaults", "ShowAuthCapture" };
+
+    private string? error;
+    private string? combinedError = string.Empty;
+
+    private B2cCustomer b2CCustomer = new();
+
+    private ISessionTransactions _sessionTransactions = new SessionTransactions();
+
+    private SessionTransJson sessionTransJson = new();
+    private SessionTransJson? originalSessionTrans;
+
+    private JsonNode? _transactionJson = null;
+
+    private static List<BasicErrorInfo> basicErrorInfos = new List<BasicErrorInfo>();
+
+    private string originalTransactionId = string.Empty;
+    private string requestedAmount = "0.00";
+    private string authorizedAmount = "0.00";
+    private string remainingBalance = "0.00";
+
+    protected override void OnInitialized()
+    {
+        _sessionTransactions = sessionTransactions;
+
+        // Retrieve the last transaction which should be the partial auth
+        originalSessionTrans = _sessionTransactions.Transactions.LastOrDefault();
+
+        if (originalSessionTrans is not null)
+        {
+            originalTransactionId = originalSessionTrans.TransactionId ?? "Unknown";
+            requestedAmount = originalSessionTrans.RequestedAmount ?? "0.00";
+            authorizedAmount = originalSessionTrans.TransactionAmount ?? "0.00";
+            remainingBalance = originalSessionTrans.RemainingBalance ?? "0.00";
+
+            // Pre-populate the customer from the original transaction
+            if (originalSessionTrans.Customer is not null)
+            {
+                var origCustomer = originalSessionTrans.Customer;
+                b2CCustomer.FirstName = origCustomer.FirstName;
+                b2CCustomer.LastName = origCustomer.LastName;
+                b2CCustomer.FullName = origCustomer.FullName;
+                b2CCustomer.Email = origCustomer.Email;
+                b2CCustomer.Address1 = origCustomer.Address1;
+                b2CCustomer.City = origCustomer.City;
+                b2CCustomer.AdministrativeArea = origCustomer.AdministrativeArea;
+                b2CCustomer.PostalCode = origCustomer.PostalCode;
+                b2CCustomer.Country = origCustomer.Country;
+                b2CCustomer.Phone = origCustomer.Phone;
+                b2CCustomer.Currency = origCustomer.Currency;
+            }
+
+            // Set the remaining balance as the amount for the new transaction
+            if (decimal.TryParse(remainingBalance, out decimal remaining))
+            {
+                b2CCustomer.TotalAmount = remaining;
+            }
+
+            // Opt in to partial auth again in case the second card also partially authorizes
+            b2CCustomer.AllowPartialAuth = true;
+        }
+
+        base.OnInitialized();
+    }
+
+    private async Task Submit(B2cCustomer submittedCustomer)
+    {
+        try
+        {
+            if (submittedCustomer.MarkedForCapture)
+            {
+                sessionTransJson.OriginalTransactionType = CcTransactionTypes.SALE;
+                sessionTransJson.CurrentTransactionType = CcTransactionTypes.PARTIAL_AUTH_BALANCE;
+            }
+            else
+            {
+                sessionTransJson.OriginalTransactionType = CcTransactionTypes.AUTH;
+                sessionTransJson.CurrentTransactionType = CcTransactionTypes.PARTIAL_AUTH_BALANCE;
+            }
+
+            if (submittedCustomer.ActionTokenTypes is null)
+            {
+                submittedCustomer.ActionTokenTypes = new string[] { "paymentInstrument" };
+            }
+
+            // Ensure the amount is the remaining balance
+            if (decimal.TryParse(remainingBalance, out decimal remaining) && remaining > 0)
+            {
+                submittedCustomer.TotalAmount = remaining;
+            }
+
+            // Ensure partial auth flag is set
+            submittedCustomer.AllowPartialAuth = true;
+
+            // Serialize the object into a string for submission
+            var options = new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(submittedCustomer, options);
+
+            // POST FOR PARTIAL AUTH BALANCE TRANSACTION *******
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, (CcTransactionTypes)sessionTransJson.CurrentTransactionType!);
+
+            // POST FOR PARTIAL AUTH BALANCE TRANSACTION *******
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse is not null && sessionResponse.TransactionJson is not null && sessionResponse.TransactionStatus != "error")
+            {
+                basicErrorInfos = JsonErrorExtractor.ExtractErrorObjects(sessionResponse.TransactionJson.ToString());
+
+                bool containsError = basicErrorInfos.Any(e =>
+                    AppErrorConfig.ErrorKeywords.Any(k =>
+                        $"{e.Status} {e.Reason} {e.Message} {e.Action}"
+                            .ToLowerInvariant()
+                            .Contains(k.ToLowerInvariant())
+                    )
+                );
+
+                if (containsError)
+                {
+                    HandleErrorAndRedirect(sessionResponse);
+                    return;
+                }
+            }
+
+            if (containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse != null && containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+            else
+            {
+                sessionTransactions.AddTrans(sessionResponse!);
+                Navigation.NavigateTo("/processauth");
+            }
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    private void HandleErrorAndRedirect(SessionTransJson? response, string fallbackErrorMessage = "Unknown error")
+    {
+        Show = false;
+        StateHasChanged();
+
+        var errorMessage = response?.error ?? fallbackErrorMessage;
+        var errorJsonState = response?.JsonTransactionStateValues ?? TransactionStateValues.Error;
+
+        var errorResponse = response ?? new SessionTransJson
+        {
+            JsonTransactionStateValues = errorJsonState,
+            error = errorMessage,
+            TransactionStatus = "error"
+        };
+
+        sessionTransactions.AddTrans(errorResponse);
+        Navigation.NavigateTo("/errorhandler");
+    }
+
+}

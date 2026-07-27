@@ -1,0 +1,34 @@
+<div class="card border-0 bg-light h-100">
+    <div class="card-img-top text-center p-4 position-relative" style="min-height: 200px;">
+        <button class="btn btn-link position-absolute top-0 end-0 m-2 @(Product.IsWishlisted ? "text-danger" : "text-muted")"
+                @onclick="ToggleWishlist"
+                aria-label="@(Product.IsWishlisted ? "Remove from wishlist" : "Add to wishlist")">
+            <i class="bi @(Product.IsWishlisted ? "bi-heart-fill" : "bi-heart") fs-5"></i>
+        </button>
+        <img src="@Product.ImageUrl"
+             alt="@Product.Name"
+             class="img-fluid"
+             style="max-height: 160px; object-fit: contain;"
+             loading="lazy" />
+    </div>
+    <div class="card-body text-center d-flex flex-column">
+        <p class="card-title small fw-medium mb-1">@Product.Name</p>
+        <p class="text-muted small mb-1">@Product.Sku</p>
+        <p class="fs-4 fw-bold mt-auto mb-3">$@Product.Price.ToString("N2")</p>
+        <button class="btn btn-dark w-100" @onclick="AddToCart">Add to Cart</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Product Product { get; set; } = default!;
+    [Parameter] public EventCallback<Product> OnAddToCart { get; set; }
+    [Parameter] public EventCallback<Product> OnWishlistToggle { get; set; }
+
+    private async Task AddToCart() => await OnAddToCart.InvokeAsync(Product);
+
+    private async Task ToggleWishlist()
+    {
+        Product.IsWishlisted = !Product.IsWishlisted;
+        await OnWishlistToggle.InvokeAsync(Product);
+    }
+}

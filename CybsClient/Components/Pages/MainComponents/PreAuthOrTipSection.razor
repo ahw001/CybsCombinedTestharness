@@ -1,0 +1,19 @@
+<hr class="my-4">
+
+<InputRadioGroup @bind-Value="@Customer!.PreAuthOrOnDeviceTip">
+    <h4 class="mb-3">Pre-Auth Only, Pre-Auth Tipping or On Device Tipping</h4>
+    @foreach (var value in PreAuthOrOnDevice)
+    {
+        <div class="form-check">
+            <InputRadio Value="@value" />
+            @value
+        </div>
+    }
+</InputRadioGroup>
+
+<hr class="my-4">
+
+@code {
+    [Parameter] public B2cCustomer? Customer { get; set; }
+    [Parameter] public string[] PreAuthOrOnDevice { get; set; } = Array.Empty<string>();
+}

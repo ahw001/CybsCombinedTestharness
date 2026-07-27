@@ -1,0 +1,687 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/cardprocessingconfig"
+
+@using CybsClient.Model.Cybersource.Boarding
+@using CybsClient.Services.Utilities
+@using System.Text.Json
+
+@inject NavigationManager Navigation
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/boarding/dashboard">Boarding Dashboard</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Card Processing Configuration</li>
+    </ol>
+</nav>
+<h2>Card Processing Configuration</h2>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible">
+        @_statusMessage
+        <button type="button" class="btn-close" @onclick="() => _statusMessage = string.Empty"></button>
+    </div>
+}
+
+@if (_savedSubscriptions.Count > 0)
+{
+    <div class="card mb-4">
+        <div class="card-header"><b>Saved Card Processing Configurations</b></div>
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Product</th>
+                        <th>Processor</th>
+                        <th>USD Merchant ID</th>
+                        <th>USD Terminal ID</th>
+                        <th>USD Terminal IDs</th>
+                        <th>Enabled</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in _savedSubscriptions)
+                    {
+                        var proc = s.CardProcessingConfig?.ProcessorConfigs.FirstOrDefault();
+                        var isEditing = s.BoardingProductSubscriptionId == _editingId;
+                        <tr class="@(isEditing ? "table-warning" : "")">
+                            <td>@s.BoardingProductSubscriptionId</td>
+                            <td>@s.ProductName</td>
+                            <td>@(proc?.ProcessorName ?? "—")</td>
+                            <td class="font-monospace small">@(proc?.CurrencyUsdMerchantId ?? "—")</td>
+                            <td class="font-monospace small">@(proc?.CurrencyUsdTerminalId ?? "—")</td>
+                            <td class="font-monospace small">@(string.IsNullOrEmpty(proc?.CurrencyUsdTerminalIds) ? "—" : proc!.CurrencyUsdTerminalIds)</td>
+                            <td>@(s.SubscriptionEnabled ? "Yes" : "No")</td>
+                            <td class="text-nowrap">
+                                <button class="btn btn-sm btn-outline-primary me-1"
+                                        @onclick="() => PopulateFormFromSubscription(s)">Edit</button>
+                                <button class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => DeleteSubscriptionAsync(s.BoardingProductSubscriptionId)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@if (_editingId > 0)
+{
+    <div class="alert alert-warning d-flex align-items-center gap-2 py-2 mb-3">
+        <span>Editing configuration <strong>#@_editingId</strong> — update the fields below and click <strong>Update Card Processing Config</strong>.</span>
+        <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="ResetForm">Cancel</button>
+    </div>
+}
+
+<div class="card mb-3">
+    <div class="card-header"><b>Load from JSON</b></div>
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-10">
+                <textarea class="form-control font-monospace" rows="5"
+                          placeholder="Paste FDIGlobalCPAD.json, VdcVantivCPC.json, or any cardProcessing config JSON..."
+                          @bind="_jsonInput"></textarea>
+            </div>
+            <div class="col-2 d-flex align-items-center">
+                <button class="btn btn-outline-secondary w-100" @onclick="LoadFromJson">Load JSON</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><b>Subscription Details</b></div>
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-md-4">
+                <label class="form-label">Product Name</label>
+                <input class="form-control" @bind="_productName" placeholder="cardProcessing" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Template ID</label>
+                <input class="form-control" @bind="_templateId" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header"><b>Common Configuration</b></div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Default Auth Type Code</label>
+                    <select class="form-select" @bind="_config.DefaultAuthTypeCode">
+                        <option value="">-- Select --</option>
+                        <option value="FINAL">FINAL</option>
+                        <option value="final">final</option>
+                        <option value="PRE">PRE</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Merchant Category Code</label>
+                    <input class="form-control" @bind="_config.MerchantCategoryCode" placeholder="5999" />
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_enablePartialAuth" id="enablePartialAuth" />
+                    <label class="form-check-label" for="enablePartialAuth">Enable Partial Auth</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_enableDupRefNumBlocking" id="dupRefNum" />
+                    <label class="form-check-label" for="dupRefNum">Enable Duplicate Ref# Blocking</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_authRetryDisabled" id="authRetry" />
+                    <label class="form-check-label" for="authRetry">Auth Merchant Retry Disabled</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_ignoreAvs" id="ignoreAvs" />
+                    <label class="form-check-label" for="ignoreAvs">Ignore AVS</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_visaStraightThrough" id="visaStraight" />
+                    <label class="form-check-label" for="visaStraight">Visa Straight-Through Processing Only</label>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Card Present Solution Type</label>
+                    <input class="form-control" @bind="_config.CardPresentSolutionType" placeholder="cybs" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Card Present Product Selected (GUID)</label>
+                    <input class="form-control" @bind="_config.CardPresentProductSelected" />
+                </div>
+                <hr />
+                <h6>Card-Not-Present AVS Relaxation</h6>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_cpRelaxAvs" id="cpRelaxAvs" />
+                    <label class="form-check-label" for="cpRelaxAvs">Relax AVS</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_cpRelaxAvsZip" id="cpRelaxAvsZip" />
+                    <label class="form-check-label" for="cpRelaxAvsZip">Allow Zip Without Country</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_cpRelaxAvsExpired" id="cpRelaxAvsExpired" />
+                    <label class="form-check-label" for="cpRelaxAvsExpired">Allow Expired Card</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header"><b>Processor Configuration</b></div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Processor</label>
+                    <select class="form-select" @bind="_processor.ProcessorName">
+                        <option value="">-- Select --</option>
+                        <option value="vdcvantiv">vdcvantiv</option>
+                        <option value="fdiglobal">fdiglobal</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Batch Group</label>
+                    <input class="form-control" @bind="_processor.BatchGroup" placeholder="vdcvantiv_test / fdiglobal_test" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">USD Merchant ID</label>
+                    <input class="form-control" @bind="_processor.CurrencyUsdMerchantId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">USD Terminal ID</label>
+                    <input class="form-control" @bind="_processor.CurrencyUsdTerminalId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">USD Terminal IDs <span class="text-muted small">(fdiglobal — comma-separated)</span></label>
+                    <input class="form-control" @bind="_processor.CurrencyUsdTerminalIds" placeholder="e.g. 99345644,99345645" />
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_usdEnabled" id="usdEnabled" />
+                    <label class="form-check-label" for="usdEnabled">USD Enabled</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_usdCardPresent" id="usdCp" />
+                    <label class="form-check-label" for="usdCp">USD Card Present Enabled</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_usdCardNotPresent" id="usdCnp" />
+                    <label class="form-check-label" for="usdCnp">USD Card Not Present Enabled</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_enableTrnRefNum" id="trnRefNum" />
+                    <label class="form-check-label" for="trnRefNum">Enable Transaction Reference Number</label>
+                </div>
+
+                <hr /><h6>Acquirer (vdcvantiv only)</h6>
+                <div class="mb-2"><label class="form-label">Country Code</label><input class="form-control" @bind="_processor.AcquirerCountryCode" /></div>
+                <div class="mb-2"><label class="form-label">File Destination BIN</label><input class="form-control" @bind="_processor.AcquirerFileDestinationBin" /></div>
+                <div class="mb-2"><label class="form-label">Interbank Card Association ID</label><input class="form-control" @bind="_processor.AcquirerInterbankCardAssociationId" /></div>
+                <div class="mb-2"><label class="form-label">Institution ID</label><input class="form-control" @bind="_processor.AcquirerInstitutionId" /></div>
+                <div class="mb-2"><label class="form-label">Discover Institution ID</label><input class="form-control" @bind="_processor.AcquirerDiscoverInstitutionId" /></div>
+                <div class="mb-2"><label class="form-label">Acquirer Merchant ID</label><input class="form-control" @bind="_processor.AcquirerMerchantId" /></div>
+
+                <hr /><h6>PIN Debit / Card Present</h6>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_pinDebitEnablePartialAuth" id="pinDebitPartialAuth" />
+                    <label class="form-check-label" for="pinDebitPartialAuth">PIN Debit Enable Partial Auth</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_enablePinTranslation" id="enablePinTranslation" />
+                    <label class="form-check-label" for="enablePinTranslation">Enable PIN Translation</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_disablePosTerminalIdValidation" id="disablePosTerminalId" />
+                    <label class="form-check-label" for="disablePosTerminalId">Disable POS Terminal ID Validation</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" @bind="_enableMultipleTerminalIds" id="enableMultipleTerminalIds" />
+                    <label class="form-check-label" for="enableMultipleTerminalIds">Enable Multiple Terminal IDs</label>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Default POS Terminal ID</label>
+                    <input class="form-control" @bind="_processor.DefaultPointOfSaleTerminalId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">POS Terminal IDs</label>
+                    <input class="form-control" @bind="_processor.PointOfSaleTerminalIds" placeholder="space or comma-separated" />
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><b>Payment Types</b></span>
+                <button class="btn btn-sm btn-outline-primary" @onclick="AddPaymentType">+ Add</button>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Type</th>
+                            <th>Merchant ID</th>
+                            <th>Terminal ID</th>
+                            <th>CP</th>
+                            <th>CNP</th>
+                            <th>On</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var pt in _processor.PaymentTypes)
+                        {
+                            <tr>
+                                <td>
+                                    <select class="form-select form-select-sm" @bind="pt.PaymentType">
+                                        <option value="VISA">VISA</option>
+                                        <option value="MASTERCARD">MASTERCARD</option>
+                                        <option value="DISCOVER">DISCOVER</option>
+                                        <option value="AMERICAN_EXPRESS">AMEX</option>
+                                        <option value="JCB">JCB</option>
+                                        <option value="DINERS_CLUB">DINERS</option>
+                                        <option value="PIN_DEBIT">PIN_DEBIT</option>
+                                    </select>
+                                </td>
+                                <td><input class="form-control form-control-sm" @bind="pt.MerchantId" /></td>
+                                <td><input class="form-control form-control-sm" @bind="pt.TerminalId" /></td>
+                                <td><input type="checkbox" class="form-check-input" @bind="pt.EnabledCardPresent" /></td>
+                                <td><input type="checkbox" class="form-check-input" @bind="pt.EnabledCardNotPresent" /></td>
+                                <td><input type="checkbox" class="form-check-input" @bind="pt.Enabled" /></td>
+                                <td><button class="btn btn-sm btn-outline-danger" @onclick="() => RemovePaymentType(pt)">×</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex gap-2 mb-4">
+    <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
+        @(_saving ? "Saving..." : (_editingId > 0 ? "Update Card Processing Config" : "Save Card Processing Config"))
+    </button>
+    <button class="btn btn-outline-secondary" @onclick="ResetForm">Reset</button>
+    <a class="btn btn-outline-primary" href="/transactingboarding">Go to Transacting Boarding</a>
+    <a class="btn btn-outline-secondary" href="/orgboarding">Back to Org Boarding</a>
+</div>
+
+@code {
+    private BoardingCardProcessingConfigDto _config = new();
+    private BoardingProcessorConfigDto _processor = new()
+    {
+        PaymentTypes = new List<BoardingPaymentTypeDto>
+        {
+            new() { PaymentType = "VISA",             Enabled = true, EnabledCardPresent = true, EnabledCardNotPresent = true },
+            new() { PaymentType = "MASTERCARD",       Enabled = true, EnabledCardPresent = true, EnabledCardNotPresent = true },
+            new() { PaymentType = "DISCOVER",         Enabled = true, EnabledCardPresent = true, EnabledCardNotPresent = true },
+            new() { PaymentType = "AMERICAN_EXPRESS", Enabled = true, EnabledCardPresent = true, EnabledCardNotPresent = true }
+        }
+    };
+
+    [SupplyParameterFromQuery(Name = "id")]
+    public int? Id { get; set; }
+
+    private int    _editingId        = 0;
+    private List<BoardingCardProductSubscriptionDto> _savedSubscriptions = new();
+    private string _jsonInput       = string.Empty;
+    private string _statusMessage   = string.Empty;
+    private bool   _isError         = false;
+    private bool   _saving          = false;
+    private string _productName     = "cardProcessing";
+    private string _templateId      = string.Empty;
+
+    // Booleans mirroring nullable bool fields
+    private bool _enablePartialAuth      = true;
+    private bool _enableDupRefNumBlocking = false;
+    private bool _authRetryDisabled      = false;
+    private bool _ignoreAvs              = false;
+    private bool _visaStraightThrough    = false;
+    private bool _cpRelaxAvs             = true;
+    private bool _cpRelaxAvsZip          = false;
+    private bool _cpRelaxAvsExpired      = true;
+    private bool _usdEnabled             = true;
+    private bool _usdCardPresent         = true;
+    private bool _usdCardNotPresent      = true;
+    private bool _enableTrnRefNum        = true;
+    private bool _pinDebitEnablePartialAuth      = false;
+    private bool _enablePinTranslation           = false;
+    private bool _disablePosTerminalIdValidation = false;
+    private bool _enableMultipleTerminalIds      = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSubscriptionsAsync();
+
+        if (Id.HasValue && Id.Value > 0)
+        {
+            var sub = _savedSubscriptions.FirstOrDefault(s => s.BoardingProductSubscriptionId == Id.Value);
+            if (sub is not null)
+                PopulateFormFromSubscription(sub);
+        }
+    }
+
+    private async Task LoadSubscriptionsAsync()
+    {
+        var subs = await CallMinAPIs.GetAllCardProductSubscriptionsAsync();
+        _savedSubscriptions = subs.Data ?? new();
+        if (subs.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Failed to load subscriptions: {subs.Error.Message}";
+        }
+    }
+
+    private void PopulateFormFromSubscription(BoardingCardProductSubscriptionDto sub)
+    {
+        _editingId   = sub.BoardingProductSubscriptionId;
+        _productName = sub.ProductName ?? "cardProcessing";
+        _templateId  = sub.TemplateId  ?? string.Empty;
+
+        if (sub.CardProcessingConfig is { } cfg)
+        {
+            _config = cfg;
+            _enablePartialAuth       = cfg.EnablePartialAuth               ?? true;
+            _enableDupRefNumBlocking = cfg.EnableDuplicateRefNumBlocking    ?? false;
+            _authRetryDisabled       = cfg.AuthMerchantRetryDisabled        ?? false;
+            _ignoreAvs               = cfg.IgnoreAddressVerificationSystem  ?? false;
+            _visaStraightThrough     = cfg.VisaStraightThroughProcessingOnly ?? false;
+            _cpRelaxAvs              = cfg.CpRelaxAddressVerificationSystem  ?? true;
+            _cpRelaxAvsZip           = cfg.CpRelaxAvsAllowZipWithoutCountry  ?? false;
+            _cpRelaxAvsExpired       = cfg.CpRelaxAvsAllowExpiredCard         ?? true;
+
+            var proc = cfg.ProcessorConfigs?.FirstOrDefault();
+            if (proc is not null)
+            {
+                _processor                      = proc;
+                _usdEnabled                     = proc.CurrencyUsdEnabled              ?? true;
+                _usdCardPresent                 = proc.CurrencyUsdEnabledCardPresent   ?? true;
+                _usdCardNotPresent              = proc.CurrencyUsdEnabledCardNotPresent ?? true;
+                _enableTrnRefNum                = proc.EnableTransactionReferenceNumber ?? true;
+                _pinDebitEnablePartialAuth      = proc.PinDebitEnablePartialAuth        ?? false;
+                _enablePinTranslation           = proc.EnablePinTranslation             ?? false;
+                _disablePosTerminalIdValidation = proc.DisablePointOfSaleTerminalIdValidation ?? false;
+                _enableMultipleTerminalIds      = proc.EnableMultipleTerminalIDs         ?? false;
+            }
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+
+        // Sync booleans → dto
+        _config.EnablePartialAuth               = _enablePartialAuth;
+        _config.EnableDuplicateRefNumBlocking   = _enableDupRefNumBlocking;
+        _config.AuthMerchantRetryDisabled       = _authRetryDisabled;
+        _config.IgnoreAddressVerificationSystem = _ignoreAvs;
+        _config.VisaStraightThroughProcessingOnly = _visaStraightThrough;
+        _config.CpRelaxAddressVerificationSystem  = _cpRelaxAvs;
+        _config.CpRelaxAvsAllowZipWithoutCountry  = _cpRelaxAvsZip;
+        _config.CpRelaxAvsAllowExpiredCard        = _cpRelaxAvsExpired;
+
+        _processor.CurrencyUsdEnabled              = _usdEnabled;
+        _processor.CurrencyUsdEnabledCardPresent   = _usdCardPresent;
+        _processor.CurrencyUsdEnabledCardNotPresent = _usdCardNotPresent;
+        _processor.EnableTransactionReferenceNumber       = _enableTrnRefNum;
+        _processor.PinDebitEnablePartialAuth              = _pinDebitEnablePartialAuth;
+        _processor.EnablePinTranslation                   = _enablePinTranslation;
+        _processor.DisablePointOfSaleTerminalIdValidation = _disablePosTerminalIdValidation;
+        _processor.EnableMultipleTerminalIDs              = _enableMultipleTerminalIds;
+
+        _config.ProcessorConfigs = new List<BoardingProcessorConfigDto> { _processor };
+
+        var sub = new BoardingCardProductSubscriptionDto
+        {
+            ProductName           = string.IsNullOrWhiteSpace(_productName) ? "cardProcessing" : _productName,
+            ProductCategory       = "payments",
+            SubscriptionEnabled   = true,
+            CardPresentEnabled    = true,
+            CardNotPresentEnabled = true,
+            TemplateId            = _templateId,
+            CardProcessingConfig  = _config
+        };
+
+        ApiResult<BoardingCardProductSubscriptionDto> result;
+        if (_editingId > 0)
+        {
+            sub.BoardingProductSubscriptionId = _editingId;
+            result = await CallMinAPIs.UpdateCardProductSubscriptionAsync(_editingId, sub);
+        }
+        else
+        {
+            result = await CallMinAPIs.SaveCardProductSubscriptionAsync(sub);
+        }
+        _saving = false;
+
+        if (result.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Error: {result.Error.Message}";
+        }
+        else
+        {
+            _isError = false;
+            _statusMessage = _editingId > 0
+                ? $"Card processing config updated (ID={_editingId})."
+                : $"Card processing config saved (ID={result.Data?.BoardingProductSubscriptionId}). Link it to a transacting merchant on the Transacting Boarding page.";
+            _editingId = 0;
+            ResetForm();
+            await LoadSubscriptionsAsync();
+        }
+    }
+
+    private async Task DeleteSubscriptionAsync(int id)
+    {
+        var result = await CallMinAPIs.DeleteCardProductSubscriptionAsync(id);
+        _isError = !result.IsSuccess;
+        _statusMessage = result.Error is not null
+            ? $"Failed to delete config {id}: {result.Error.Message}"
+            : $"Config {id} deleted.";
+        await LoadSubscriptionsAsync();
+    }
+
+    private void AddPaymentType() =>
+        _processor.PaymentTypes.Add(new BoardingPaymentTypeDto { PaymentType = "VISA", Enabled = true });
+
+    private void RemovePaymentType(BoardingPaymentTypeDto pt) =>
+        _processor.PaymentTypes.Remove(pt);
+
+    private void LoadFromJson()
+    {
+        if (string.IsNullOrWhiteSpace(_jsonInput)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(_jsonInput);
+            var root = doc.RootElement;
+
+            JsonElement? cpRoot = TryFindCardProcessing(root);
+            if (cpRoot is null)
+            {
+                _isError = true;
+                _statusMessage = "Could not locate 'cardProcessing' node in the JSON.";
+                return;
+            }
+
+            var cp = cpRoot.Value;
+
+            if (cp.TryGetProperty("configurationInformation", out var cfgInfo) &&
+                cfgInfo.TryGetProperty("configurations", out var cfgs))
+            {
+                if (cfgs.TryGetProperty("common", out var common))
+                {
+                    _config.DefaultAuthTypeCode = common.TryGetProperty("defaultAuthTypeCode", out var v1) ? v1.GetString() : _config.DefaultAuthTypeCode;
+                    if (common.TryGetProperty("merchantCategoryCode", out var mcc)) _config.MerchantCategoryCode = mcc.GetString();
+                    if (common.TryGetProperty("enablePartialAuth", out var epa)) _enablePartialAuth = epa.GetBoolean();
+                    if (common.TryGetProperty("enableDuplicateMerchantReferenceNumberBlocking", out var dup)) _enableDupRefNumBlocking = dup.GetBoolean();
+                    if (common.TryGetProperty("authMerchantRetryDisabled", out var ard)) _authRetryDisabled = ard.GetBoolean();
+
+                    if (common.TryGetProperty("processors", out var procs))
+                    {
+                        if (procs.TryGetProperty("vdcvantiv", out var vdcEl)) { _processor.ProcessorName = "vdcvantiv"; ParseVdcVantiv(vdcEl); }
+                        else if (procs.TryGetProperty("fdiglobal", out var fdiEl)) { _processor.ProcessorName = "fdiglobal"; ParseFdiGlobal(fdiEl); }
+                    }
+                }
+
+                if (cfgs.TryGetProperty("features", out var features))
+                {
+                    if (features.TryGetProperty("cardNotPresent", out var cnp))
+                    {
+                        if (cnp.TryGetProperty("ignoreAddressVerificationSystem", out var iavs)) _ignoreAvs = iavs.GetBoolean();
+                        if (cnp.TryGetProperty("visaStraightThroughProcessingOnly", out var vs)) _visaStraightThrough = vs.GetBoolean();
+                        if (cnp.TryGetProperty("processors", out var cnpProcs))
+                        {
+                            var procNode = cnpProcs.TryGetProperty("vdcvantiv", out var vEl) ? vEl :
+                                          cnpProcs.TryGetProperty("fdiglobal", out var fEl) ? fEl : (JsonElement?)null;
+                            if (procNode.HasValue)
+                            {
+                                if (procNode.Value.TryGetProperty("relaxAddressVerificationSystem", out var ravs)) _cpRelaxAvs = ravs.GetBoolean();
+                                if (procNode.Value.TryGetProperty("relaxAddressVerificationSystemAllowZipWithoutCountry", out var rzip)) _cpRelaxAvsZip = rzip.GetBoolean();
+                                if (procNode.Value.TryGetProperty("relaxAddressVerificationSystemAllowExpiredCard", out var rexp)) _cpRelaxAvsExpired = rexp.GetBoolean();
+                            }
+                        }
+                    }
+                    if (features.TryGetProperty("cardPresent", out var cp2))
+                    {
+                        _config.CardPresentSolutionType = cp2.TryGetProperty("cardPresentSolutionType", out var cst) ? cst.GetString() : _config.CardPresentSolutionType;
+                        if (cp2.TryGetProperty("processors", out var cpProcs))
+                        {
+                            var cpProcNode = cpProcs.TryGetProperty("vdcvantiv", out var cpVdc) ? cpVdc :
+                                             cpProcs.TryGetProperty("fdiglobal",  out var cpFdi) ? cpFdi : (JsonElement?)null;
+                            if (cpProcNode.HasValue)
+                            {
+                                if (cpProcNode.Value.TryGetProperty("disablePointOfSaleTerminalIdValidation", out var dptv)) _disablePosTerminalIdValidation         = dptv.GetBoolean();
+                                if (cpProcNode.Value.TryGetProperty("enablePinTranslation",                   out var ept))  _enablePinTranslation                   = ept.GetBoolean();
+                                if (cpProcNode.Value.TryGetProperty("defaultPointOfSaleTerminalId",           out var dpt))  _processor.DefaultPointOfSaleTerminalId = dpt.GetString();
+                                if (cpProcNode.Value.TryGetProperty("pointOfSaleTerminalIds",                 out var pti))  _processor.PointOfSaleTerminalIds       = pti.GetString();
+                                if (cpProcNode.Value.TryGetProperty("enableMultipleTerminalIDs",              out var emti)) _enableMultipleTerminalIds               = emti.GetBoolean();
+                                if (cpProcNode.Value.TryGetProperty("pinDebitEnablePartialAuth",              out var pdpa)) _pinDebitEnablePartialAuth               = pdpa.GetBoolean();
+                            }
+                        }
+                    }
+                }
+
+                if (cfgInfo.TryGetProperty("templateId", out var tid)) _templateId = tid.GetString() ?? _templateId;
+            }
+
+            _statusMessage = "JSON loaded successfully.";
+            _isError = false;
+            _jsonInput = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = $"Invalid JSON: {ex.Message}";
+        }
+    }
+
+    private void ParseVdcVantiv(JsonElement vdc)
+    {
+        if (vdc.TryGetProperty("batchGroup", out var bg)) _processor.BatchGroup = bg.GetString();
+        if (vdc.TryGetProperty("acquirer", out var acq))
+        {
+            if (acq.TryGetProperty("countryCode", out var cc)) _processor.AcquirerCountryCode = cc.GetString();
+            if (acq.TryGetProperty("fileDestinationBin", out var fdb)) _processor.AcquirerFileDestinationBin = fdb.GetString();
+            if (acq.TryGetProperty("interbankCardAssociationId", out var ica)) _processor.AcquirerInterbankCardAssociationId = ica.GetString();
+            if (acq.TryGetProperty("institutionId", out var iid)) _processor.AcquirerInstitutionId = iid.GetString();
+            if (acq.TryGetProperty("discoverInstitutionId", out var did)) _processor.AcquirerDiscoverInstitutionId = did.GetString();
+        }
+        if (vdc.TryGetProperty("acquirerMerchantId", out var ami)) _processor.AcquirerMerchantId = ami.GetString();
+        if (vdc.TryGetProperty("enableTransactionReferenceNumber", out var etr)) _enableTrnRefNum = etr.GetBoolean();
+        ParsePaymentTypes(vdc);
+    }
+
+    private void ParseFdiGlobal(JsonElement fdi)
+    {
+        if (fdi.TryGetProperty("batchGroup", out var bg)) _processor.BatchGroup = bg.GetString();
+        if (fdi.TryGetProperty("enableTransactionReferenceNumber", out var etr)) _enableTrnRefNum = etr.GetBoolean();
+        if (fdi.TryGetProperty("currencies", out var curr) && curr.TryGetProperty("USD", out var usd))
+        {
+            if (usd.TryGetProperty("merchantId", out var mid)) _processor.CurrencyUsdMerchantId = mid.GetString();
+            if (usd.TryGetProperty("terminalId", out var tid)) _processor.CurrencyUsdTerminalId = tid.GetString();
+            if (usd.TryGetProperty("terminalIds", out var tids))
+                _processor.CurrencyUsdTerminalIds = string.Join(",", tids.EnumerateArray().Select(t => t.GetString() ?? "").Where(s => s.Length > 0));
+            if (usd.TryGetProperty("enabled", out var en)) _usdEnabled = en.GetBoolean();
+            if (usd.TryGetProperty("enabledCardPresent", out var ecp)) _usdCardPresent = ecp.GetBoolean();
+            if (usd.TryGetProperty("enabledCardNotPresent", out var ecnp)) _usdCardNotPresent = ecnp.GetBoolean();
+        }
+        ParsePaymentTypes(fdi);
+    }
+
+    private void ParsePaymentTypes(JsonElement proc)
+    {
+        if (!proc.TryGetProperty("paymentTypes", out var pts)) return;
+        _processor.PaymentTypes.Clear();
+        foreach (var pt in pts.EnumerateObject())
+        {
+            var dto = new BoardingPaymentTypeDto { PaymentType = pt.Name };
+            if (pt.Value.TryGetProperty("enabled", out var en)) dto.Enabled = en.GetBoolean();
+            if (pt.Value.TryGetProperty("currencies", out var curr) && curr.TryGetProperty("USD", out var usd))
+            {
+                if (usd.TryGetProperty("merchantId", out var mid)) dto.MerchantId = mid.GetString();
+                if (usd.TryGetProperty("terminalId", out var tid)) dto.TerminalId = tid.GetString();
+                if (usd.TryGetProperty("enabledCardPresent", out var ecp)) dto.EnabledCardPresent = ecp.GetBoolean();
+                if (usd.TryGetProperty("enabledCardNotPresent", out var ecnp)) dto.EnabledCardNotPresent = ecnp.GetBoolean();
+            }
+            _processor.PaymentTypes.Add(dto);
+        }
+    }
+
+    private JsonElement? TryFindCardProcessing(JsonElement root)
+    {
+        string[][] paths =
+        {
+            new[] { "cardProcessing" },
+            new[] { "payments", "cardProcessing" },
+            new[] { "setups", "payments", "cardProcessing" },
+            new[] { "productInformation", "selectedProducts", "payments", "cardProcessing" }
+        };
+        foreach (var path in paths)
+        {
+            JsonElement cur = root;
+            bool found = true;
+            foreach (var key in path)
+            {
+                if (!cur.TryGetProperty(key, out cur)) { found = false; break; }
+            }
+            if (found) return cur;
+        }
+        return null;
+    }
+
+    private void ResetForm()
+    {
+        _config = new BoardingCardProcessingConfigDto();
+        _processor = new BoardingProcessorConfigDto
+        {
+            PaymentTypes = new List<BoardingPaymentTypeDto>
+            {
+                new() { PaymentType = "VISA",       Enabled = true, EnabledCardPresent = true, EnabledCardNotPresent = true },
+                new() { PaymentType = "MASTERCARD", Enabled = true, EnabledCardPresent = true, EnabledCardNotPresent = true }
+            }
+        };
+        _enablePartialAuth       = true;
+        _enableDupRefNumBlocking = false;
+        _authRetryDisabled       = false;
+        _ignoreAvs               = false;
+        _visaStraightThrough     = false;
+        _cpRelaxAvs              = true;
+        _cpRelaxAvsZip           = false;
+        _cpRelaxAvsExpired       = true;
+        _usdEnabled              = true;
+        _usdCardPresent          = true;
+        _usdCardNotPresent       = true;
+        _enableTrnRefNum                 = true;
+        _pinDebitEnablePartialAuth      = false;
+        _enablePinTranslation           = false;
+        _disablePosTerminalIdValidation = false;
+        _enableMultipleTerminalIds      = false;
+        _productName             = "cardProcessing";
+        _templateId              = string.Empty;
+        _jsonInput               = string.Empty;
+    }
+}

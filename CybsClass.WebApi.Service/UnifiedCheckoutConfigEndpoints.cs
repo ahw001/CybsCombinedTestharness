@@ -1,0 +1,85 @@
+using Microsoft.AspNetCore.Mvc;
+using CybsClass.Cybersource.Models.BaseData;
+using CybsClass.Cybersource.Models.DTOs;
+using CybsClass.WebApi.Service.Services.DBOperations;
+using System.Text.Json;
+
+namespace CybsClass.WebApi.Service;
+
+// Phase 0 of the Unified Checkout store-path plan (UnifiedCheckoutPlanning.md) — CRUD for
+// named, saveable Unified Checkout capture-context configurations. Table already exists
+// (DDL executed by the user, local + Winhost) before this file was written.
+public static class UnifiedCheckoutConfigEndpoints
+{
+    private static readonly JsonSerializerOptions _logOptions =
+        new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
+    private static ErrorObject BuildError(string error, string message, string action) =>
+        new ErrorObject { Error = error, Message = message, Action = action, Reason = "Unified Checkout configuration operation failed." };
+
+    public static RouteGroupBuilder GroupUnifiedCheckoutConfigEndpoints(this RouteGroupBuilder group)
+    {
+        group.MapGet("/", async () =>
+        {
+            Console.WriteLine("\n\n[UnifiedCheckoutConfig] GET /api/uc-config");
+            var all = await DBUnifiedCheckoutConfigurationServices.GetAllAsync();
+            var dtos = all.Select(DBUnifiedCheckoutConfigurationServices.ToDto).ToList();
+            Console.WriteLine($"[UnifiedCheckoutConfig] RESPONSE count={dtos.Count}\n{JsonSerializer.Serialize(dtos, _logOptions)}");
+            return Results.Json(dtos);
+        }).WithName("GetAllUnifiedCheckoutConfigs");
+
+        group.MapGet("/{id:int}", async ([FromRoute] int id) =>
+        {
+            Console.WriteLine($"\n\n[UnifiedCheckoutConfig] GET /api/uc-config/{id}");
+            var entity = await DBUnifiedCheckoutConfigurationServices.GetByIdAsync(id);
+            if (entity is null)
+            {
+                var err = BuildError("Not Found", $"UnifiedCheckoutConfiguration {id} not found.", "Check the ID.");
+                Console.WriteLine($"[UnifiedCheckoutConfig] RESPONSE ERROR: {JsonSerializer.Serialize(err, _logOptions)}");
+                return Results.Json(err);
+            }
+            var dto = DBUnifiedCheckoutConfigurationServices.ToDto(entity);
+            Console.WriteLine($"[UnifiedCheckoutConfig] RESPONSE: {JsonSerializer.Serialize(dto, _logOptions)}");
+            return Results.Json(dto);
+        }).WithName("GetUnifiedCheckoutConfigById");
+
+        group.MapPost("/", async ([FromBody] UnifiedCheckoutConfigurationDto dto) =>
+        {
+            Console.WriteLine($"\n\n[UnifiedCheckoutConfig] POST /api/uc-config REQUEST: {JsonSerializer.Serialize(dto, _logOptions)}");
+
+            if (string.IsNullOrWhiteSpace(dto.Name))
+            {
+                var err = BuildError("Invalid Request", "Name is required.", "Provide a Name for the configuration.");
+                Console.WriteLine($"[UnifiedCheckoutConfig] RESPONSE ERROR: {JsonSerializer.Serialize(err, _logOptions)}");
+                return Results.Json(err);
+            }
+
+            var entity = await DBUnifiedCheckoutConfigurationServices.UpsertAsync(dto);
+            if (entity is null)
+            {
+                var err = BuildError("Database Error", "Failed to save Unified Checkout configuration.", "Check server logs.");
+                Console.WriteLine($"[UnifiedCheckoutConfig] RESPONSE ERROR: {JsonSerializer.Serialize(err, _logOptions)}");
+                return Results.Json(err);
+            }
+
+            var response = DBUnifiedCheckoutConfigurationServices.ToDto(entity);
+            Console.WriteLine($"[UnifiedCheckoutConfig] RESPONSE: {JsonSerializer.Serialize(response, _logOptions)}");
+            return Results.Json(response);
+        }).WithName("UpsertUnifiedCheckoutConfig");
+
+        group.MapDelete("/{id:int}", async ([FromRoute] int id) =>
+        {
+            Console.WriteLine($"\n\n[UnifiedCheckoutConfig] DELETE /api/uc-config/{id}");
+            bool deleted = await DBUnifiedCheckoutConfigurationServices.DeleteAsync(id);
+            if (!deleted)
+            {
+                var err = BuildError("Not Found", $"UnifiedCheckoutConfiguration {id} not found or could not be deleted.", "Check the ID.");
+                return Results.Json(err);
+            }
+            Console.WriteLine($"[UnifiedCheckoutConfig] DELETE /api/uc-config/{id} success");
+            return Results.Json(new { deleted = true, unifiedCheckoutConfigurationId = id });
+        }).WithName("DeleteUnifiedCheckoutConfig");
+
+        return group;
+    }
+}

@@ -1,0 +1,176 @@
+<FormSection Title="Use Defaults" HelpText="">
+    <div class="row">
+        <div class="col d-flex">
+            <div class="col-8">
+                <label class="form-check-label me-2" for="useDefaults"><b>Use Defaults:</b></label>
+            </div>
+            <div class="col-3 border d-flex justify-content-center align-items-center">
+                <input type="checkbox" @bind="IsChecked" @bind:after="() => IsCheckedChanged.InvokeAsync(IsChecked)" @onclick="PopulateForm" class="form-check-input" id="useDefaults" />
+            </div>
+        </div>
+        <div class="col d-flex">
+            @if (IsChecked)
+            {
+                <button class="w-100 btn btn-primary btn-lg" @onclick="HandleValidSubmit">@ButtonText</button>
+            }
+        </div>
+        <div class="col d-flex">
+            @if (Error is not null)
+            {
+                <div class="col-6">
+                    <strong class="alert-danger">@Error</strong>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Follow on Actions
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="tokencreate">New Token Create</a></li>
+                        <li><a class="dropdown-item" href="checkout">New Checkout</a></li>
+                    </ul>
+                </div>
+            }
+            else
+            {
+                <div class="col-8">
+                    <label class="form-check-label me-2" for="includeAuth"><b>Include Auth:</b></label>
+                </div>
+                <div class="col-3 border d-flex justify-content-center align-items-center">
+                    <input type="checkbox"
+                           class="form-check-input"
+                           id="includeAuth"
+                           @bind-value="IncludeAuth"
+                           @bind-value:event="onchange"
+                           @bind-value:after="() => IncludeAuthChanged.InvokeAsync(IncludeAuth)" />
+                </div>
+            }
+        </div>
+    </div>
+</FormSection>
+<FormSection>
+    <div class="row">
+        <div class="col d-flex">
+            <div class="col me-2 justify-content-center align-items-center">
+                <label class="form-check-label" for="instrumentID"><b>Instrument ID</b></label>
+            </div>
+            <div class="col-2 me-2 border d-flex justify-content-center align-items-center">
+                <input type="checkbox" @bind="InstIdChecked" @bind:after="() => InstIdCheckedChanged.InvokeAsync(InstIdChecked)" class="form-check-input" id="instrumentID" />
+            </div>
+        </div>
+        <div class="col d-flex">
+            <div class="col me-2 justify-content-center align-items-center">
+                <label class="form-check-label" for="customerInst"><b>Customer Inst</b></label>
+            </div>
+            <div class="col-2 me-2 border d-flex justify-content-center align-items-center">
+                <input type="checkbox" @bind="CustInstChecked" @bind:after="() => CustInstCheckedChanged.InvokeAsync(CustInstChecked)" class="form-check-input" id="customerInst" />
+            </div>
+        </div>
+        <div class="col d-flex">
+            <div class="col me-2 justify-content-center align-items-center">
+                <label class="form-check-label" for="paymentInst"><b>Payment Inst</b></label>
+            </div>
+            <div class="col-2 me-2 border d-flex justify-content-center align-items-center">
+                <input type="checkbox" @bind="PayInstChecked" @bind:after="() => PayInstCheckedChanged.InvokeAsync(PayInstChecked)" class="form-check-input" id="paymentInst" />
+            </div>
+        </div>
+        <div class="col d-flex">
+            <div class="col me-2 justify-content-center align-items-center">
+                <label class="form-check-label" for="instrumentID"><b>Shipping Inst</b></label>
+            </div>
+            <div class="col-2 me-2 border d-flex justify-content-center align-items-center">
+                <input type="checkbox" @bind="ShippingInstChecked" @bind:after="() => ShippingInstCheckedChanged.InvokeAsync(ShippingInstChecked)" class="form-check-input" id="shippingInst" />
+            </div>
+        </div>
+    </div>
+    <div class="row g-3">
+        <div class="col-12">
+            <label for="orderId" class="form-label">Order Id: </label>
+
+            @if (Customer?.OrderId is not null)
+            {
+                <SafeInputText TModel="B2cCustomer"
+                               Model="Customer"
+                               Value="@Customer.OrderId"
+                               ValueChanged="@(v => Customer.OrderId = v)"
+                               Id="orderId"
+                               CssClass="form-control"
+                               Placeholder="Enter Order ID" />
+            }
+        </div>
+        @if (CustInstChecked == false && (ShippingInstChecked || PayInstChecked))
+        {
+            <div class="col-12">
+                <label for="customerInstrumentId" class="form-label">Customer Instrument Id: </label>
+
+                @if (Customer?.CustomerInstrumentId is not null)
+                {
+                    <SafeInputText TModel="B2cCustomer"
+                                   Model="Customer"
+                                   Value="@Customer.CustomerInstrumentId"
+                                   ValueChanged="@(v => Customer.CustomerInstrumentId = v)"
+                                   Id="customerInstrumentId"
+                                   CssClass="form-control"
+                                   Placeholder="Customer Inst ID" />
+                }
+            </div>
+        }
+        @if ((CustInstChecked) || (Customer!.B2cCustomerId > 0))
+        {
+            <div class="col-12">
+                <label for="merchantCustomerID" class="form-label">Merchant Instrument Id: </label>
+
+                @if (Customer?.MerchantCustomerID is not null)
+                {
+                    <SafeInputText TModel="B2cCustomer"
+                                   Model="Customer"
+                                   Value="@Customer.MerchantCustomerID"
+                                   ValueChanged="@(v => Customer.MerchantCustomerID = v)"
+                                   Id="merchantCustomerID"
+                                   CssClass="form-control"
+                                   Placeholder="Merchant Inst ID" />
+                }
+            </div>
+            <div class="col-12">
+                <label for="b2cCustomerId" class="form-label">Customer Id: </label>
+
+                @if (Customer?.B2cCustomerId is not null)
+                {
+                    <SafeInputNumber TModel="B2cCustomer" TValue="int"
+                                     Model="Customer"
+                                     Value="@Customer.B2cCustomerId"
+                                     ValueChanged="@(v => Customer.B2cCustomerId = v)"
+                                     Id="b2cCustomerId"
+                                     CssClass="form-control"
+                                     Placeholder="Customer ID" />
+                }
+            </div>
+        }
+    </div>
+</FormSection>
+
+@code {
+    [Parameter] public bool IsChecked { get; set; }
+    [Parameter] public EventCallback<bool> IsCheckedChanged { get; set; }
+
+    [Parameter] public bool IncludeAuth { get; set; }
+    [Parameter] public EventCallback<bool> IncludeAuthChanged { get; set; }
+
+    [Parameter] public bool InstIdChecked { get; set; }
+    [Parameter] public EventCallback<bool> InstIdCheckedChanged { get; set; }
+
+    [Parameter] public bool ShippingInstChecked { get; set; }
+    [Parameter] public EventCallback<bool> ShippingInstCheckedChanged { get; set; }
+
+    [Parameter] public bool PayInstChecked { get; set; }
+    [Parameter] public EventCallback<bool> PayInstCheckedChanged { get; set; }
+
+    [Parameter] public bool CustInstChecked { get; set; }
+    [Parameter] public EventCallback<bool> CustInstCheckedChanged { get; set; }
+
+    [Parameter] public string? ButtonText { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public B2cCustomer? Customer { get; set; }
+
+    [Parameter] public EventCallback PopulateForm { get; set; }
+    [Parameter] public EventCallback HandleValidSubmit { get; set; }
+}

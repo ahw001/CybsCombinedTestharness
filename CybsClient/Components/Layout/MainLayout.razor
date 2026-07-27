@@ -1,0 +1,13 @@
+﻿@inherits LayoutComponentBase
+
+<NavMenu @rendermode="InteractiveServer" />
+
+<main class="flex-grow-1">
+    <article class="content px-4">
+        <LoggingErrorBoundary>
+            @Body
+        </LoggingErrorBoundary>
+    </article>
+</main>
+
+<ApiLogSidebar @rendermode="InteractiveServer" />

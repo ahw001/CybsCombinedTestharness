@@ -1,0 +1,1524 @@
+﻿@page "/flexconsolidatedcheckout"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IDisposable
+
+@* ============================================================================
+   Consolidated Flex Checkout Flow — a single-page, single-circuit rewrite of
+   the legacy 10-page chain:
+     /flexcheckout -> /flexprocessor -> /flexform -> /processfollowon
+       -> /padatacollect -> /pacheckenroll -> /paprocessor -> /pastepup
+       -> /stepup-complete -> /processfollowon
+
+   This is an ADDITIVE, NEW page. None of the legacy pages/components listed
+   above are modified. All server endpoints and DTOs are reused unchanged
+   (same CcTransactionTypes routed through CallMinAPIs.SubmitForFollowOn).
+
+   Stages (see Stage enum below) render inline except for two, which use the
+   established "modal d-block" overlay pattern from
+   Components/Pages/Boarding/BoardingDashboard.razor:
+     - CardEntry   : Flex Microform card capture (PAN/CVV/expiry + tokenize)
+     - Challenge   : 3DS step-up ACS iframe
+
+   Because no stage ever calls NavigateTo/forceLoad, the Blazor circuit is
+   never destroyed, so the SESSION_STATE_STORE/RETRIEVE GUID round-trip that
+   the legacy pastepup/stepup-complete pages use only to survive the old
+   circuit-breaking redirect is not needed here — all state stays in memory.
+   ============================================================================ *@
+
+@inject IJSRuntime JSRuntime
+@inject IHttpClientFactory httpClientFactory
+@inject ICartService cartService
+@inject ICustomersScoped customersScoped
+@inject ITransactionJson transactionJson
+@inject NavigationManager Navigation
+@inject ISessionTransactions sessionTransactions
+@inject ICtxContext ctxContext
+@inject ITransientToken diTransientToken
+@inject ClientIpService clientIpService
+@inject ITransactionModeState transactionModeState
+@inject ICardService cardService
+@inject IPayerAuthTestCardService payerAuthTestCardService
+@inject INetworkTokenTestCardService networkTokenTestCardService
+
+<h3>Flex Checkout (Consolidated)</h3>
+
+@* ── Stage progress indicator ─────────────────────────────────────────────── *@
+<ul class="nav nav-pills mb-4">
+    <li class="nav-item"><span class="nav-link @StageBadge(Stage.CustomerEntry)">1. Customer</span></li>
+    <li class="nav-item"><span class="nav-link @StageBadge(Stage.CardEntry)">2. Card</span></li>
+    <li class="nav-item"><span class="nav-link @StageBadge(Stage.DeviceCollect)">3. Device Check</span></li>
+    <li class="nav-item"><span class="nav-link @StageBadge(Stage.EnrollReview)">4. 3DS Enrollment</span></li>
+    <li class="nav-item"><span class="nav-link @StageBadge(Stage.Challenge)">5. Verify</span></li>
+    <li class="nav-item"><span class="nav-link @StageBadge(Stage.Result)">6. Result</span></li>
+</ul>
+
+@* ── Stage: CustomerEntry (inline) ────────────────────────────────────────── *@
+@if (stage == Stage.CustomerEntry)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">Transaction Type</h5>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="flexcxTransactionMode" id="flexcxModeStandard"
+                       checked="@(transactionModeState.Mode == TransactionMode.Standard)"
+                       @onchange="@(() => transactionModeState.SetMode(TransactionMode.Standard))" />
+                <label class="form-check-label" for="flexcxModeStandard">
+                    Standard &mdash; card selection from <code>PaymentCardSampleData</code>
+                </label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="flexcxTransactionMode" id="flexcxModeNetworkTokenTest"
+                       checked="@(transactionModeState.Mode == TransactionMode.NetworkTokenTest)"
+                       @onchange="@(() => OnSelectNetworkTokenTest())" />
+                <label class="form-check-label" for="flexcxModeNetworkTokenTest">
+                    Network Token Test &mdash; Network tokens ONLY, card selection from CyberSource's official <code>NetworkTokenTestCard</code> matrix.
+                    No customer information needed &mdash; selecting this automatically creates the capture context.
+                </label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="flexcxTransactionMode" id="flexcxModePayerAuth"
+                       checked="@(transactionModeState.Mode == TransactionMode.PayerAuthentication)"
+                       @onchange="@(() => transactionModeState.SetMode(TransactionMode.PayerAuthentication))" />
+                <label class="form-check-label" for="flexcxModePayerAuth">
+                    Payer Authentication Test &mdash; card selection from the full 3DS 2.x test-case matrix
+                </label>
+            </div>
+        </div>
+    </div>
+    @if (ntAutoStarted)
+    {
+        <div class="text-center py-4">
+            <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
+            <p class="text-muted mt-2">Creating capture context for Network Token Test&hellip;</p>
+        </div>
+    }
+    else
+    {
+        <CustomerMasterComponent ButtonText="Start Flex Checkout" FormElements="HomeFormElements" FormCustomer="b2CCustomer" ValidSubmit="SubmitCustomer"></CustomerMasterComponent>
+    }
+}
+
+@* ── Stage: DeviceCollect (inline, hidden Cardinal iframe) ────────────────── *@
+@if (stage == Stage.DeviceCollect)
+{
+    <div class="container">
+        <div class="text-center py-4">
+            <h4>Verifying device…</h4>
+            <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
+        </div>
+        <iframe id="flexcx-collection-iframe" name="flexcxCollectionIframe" height="10" width="10" style="display:none;" allow="payment"></iframe>
+        <form id="flexcx-collection-form" method="POST" target="flexcxCollectionIframe" action="https://centinelapistag.cardinalcommerce.com/V1/Cruise/Collect">
+            <input type="hidden" name="JWT" value="@paSetupAccessToken">
+        </form>
+    </div>
+}
+
+@* ── Stage: EnrollReview (inline) ─────────────────────────────────────────── *@
+@if (stage == Stage.EnrollReview)
+{
+    <FormSection Title="3DS Enrollment Check" HelpText="">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5>Check Enrollment Request</h5>
+                            @if (propertyValues.Count > 0)
+                            {
+                                <ul>
+                                    @foreach (var propertyValue in propertyValues)
+                                    {
+                                        <li>@propertyValue</li>
+                                    }
+                                </ul>
+                            }
+                        </div>
+                        <div class="card-footer">
+                            @if (!enrollSubmitted)
+                            {
+                                <button class="btn btn-primary" type="button" @onclick="SubmitCheckEnrollment">
+                                    Submit for Check Enrollment
+                                </button>
+                            }
+                            else if (showAuthorizeButton)
+                            {
+                                <button class="btn btn-primary" type="button" @onclick="AuthorizeFrictionless">
+                                    Authorize (Frictionless)
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </FormSection>
+}
+
+@* ── Stage: Result (inline) ───────────────────────────────────────────────── *@
+@if (stage == Stage.Result)
+{
+    <div class="container">
+        <div class="card">
+            <div class="card-body">
+                <h4>@resultTitle</h4>
+                @if (propertyValues.Count > 0)
+                {
+                    <ul>
+                        @foreach (var propertyValue in propertyValues)
+                        {
+                            <li>@propertyValue</li>
+                        }
+                    </ul>
+                }
+            </div>
+            <div class="card-footer">
+                <button class="btn btn-primary" type="button" @onclick="ResetFlow">Start New Flex Checkout</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Stage: Failed (inline) ───────────────────────────────────────────────── *@
+@if (stage == Stage.Failed)
+{
+    <div class="row p-3">
+        <strong class="alert-danger">@error</strong>
+    </div>
+    <button class="btn btn-primary" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasFlexCx" aria-controls="offcanvasFlexCx">
+        Show Error Details
+    </button>
+    <ErorrDetails TransactionJson="_transactionJson"></ErorrDetails>
+    <div class="mt-3">
+        <button class="btn btn-secondary" type="button" @onclick="ResetFlow">Start New Flex Checkout</button>
+    </div>
+}
+
+@* ── Modal: CardEntry (Flex Microform) ────────────────────────────────────── *@
+@if (stage == Stage.CardEntry)
+{
+    <div class="modal d-block" tabindex="-1" style="background:rgba(0,0,0,.45)">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Card Details</h5>
+                    <button type="button" class="btn-close" @onclick="ResetFlow"></button>
+                </div>
+                <div class="modal-body">
+                    @if (!showTransToken)
+                    {
+                        <div id="flexcx-status" class="text-muted small mb-2">Initializing FlexMicroform...</div>
+                        <div id="flexcx-errors-output" role="alert" class="mb-2"></div>
+                        <div class="mb-2">
+                            <button type="button" id="flexcx-retry-fields-btn" class="btn btn-sm btn-outline-secondary" onclick="flexcx_retryFlexFields()">
+                                Reload Card Fields
+                            </button>
+                            <span class="text-muted small ms-2">CyberSource's sandbox occasionally fails to load a field — if one above looks broken, click to reload it.</span>
+                        </div>
+                        <div class="border-black">
+                            @if (transactionModeState.Mode != TransactionMode.NetworkTokenTest)
+                            {
+                                <div class="mb-2">
+                                    <label for="flexcx-cardholderName" class="form-label">Name</label>
+                                    <input id="flexcx-cardholderName" class="form-control" value="@fullName" readonly>
+                                </div>
+                            }
+                            @if (transactionModeState.Mode == TransactionMode.PayerAuthentication)
+                            {
+                                <label class="form-label">Payer Authentication Test Case</label>
+                                <select class="form-select mb-2" @onchange="OnPaCardSelected">
+                                    <option value="">-- Select a 3DS test case / card --</option>
+                                    @foreach (var group in GroupedPaCards)
+                                    {
+                                        <optgroup label="@group.Key">
+                                            @foreach (var card in group)
+                                            {
+                                                <option value="@card.SamplePayAuthPaymentCardId">@card.OptionLabel</option>
+                                            }
+                                        </optgroup>
+                                    }
+                                </select>
+                                @if (selectedPaCard is not null)
+                                {
+                                    <div class="alert alert-info py-2 small mb-2">
+                                        <div>Card Number (paste below): <code>@selectedPaCard.AccountNumber</code></div>
+                                        <div>
+                                            Expected: VeresEnrolled=<strong>@(selectedPaCard.VeresEnrolled ?? "N/A")</strong>,
+                                            Step-Up=<strong>@(selectedPaCard.StepUpRequired ? "Yes" : "No")</strong>,
+                                            PARes=<strong>@(selectedPaCard.ParesStatus ?? "N/A")</strong>,
+                                            ECI=<strong>@(selectedPaCard.EciRawValue ?? "N/A")</strong>@(string.IsNullOrWhiteSpace(selectedPaCard.EciStringValue) ? "" : $" ({selectedPaCard.EciStringValue})")
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(selectedPaCard.RequiresCountryOverride))
+                                        {
+                                            <div class="text-warning">Requires CountryCodeOverride=@selectedPaCard.RequiresCountryOverride &mdash; this merchant profile may not be configured for this region.</div>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(selectedPaCard.ExpectedOutcomeNotes))
+                                        {
+                                            <div class="text-muted">@selectedPaCard.ExpectedOutcomeNotes</div>
+                                        }
+                                    </div>
+                                }
+                            }
+                            else if (transactionModeState.Mode == TransactionMode.NetworkTokenTest)
+                            {
+                                <label class="form-label">Network Token Test Card</label>
+                                <select class="form-select mb-2" @onchange="OnNetworkTokenTestCardSelected">
+                                    <option value="">-- Select a test card --</option>
+                                    @foreach (var card in networkTokenTestCardService.Cards)
+                                    {
+                                        <option value="@card.NetworkTokenTestCardId">
+                                            @(card.DisplayLabel ?? $"{card.CardBrand} — {card.AccountNumber} {card.ExpMonth}/{card.ExpYear}")
+                                        </option>
+                                    }
+                                </select>
+                                @if (selectedNetworkTokenTestCard is not null)
+                                {
+                                    <div class="alert alert-info py-2 small mb-2">
+                                        Card Number (paste below): <code>@selectedNetworkTokenTestCard.AccountNumber</code>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <label class="form-label">Standard Card</label>
+                                <select class="form-select mb-2" @onchange="OnStandardCardSelected">
+                                    <option value="">-- Select a test card --</option>
+                                    @for (var i = 0; i < cardService.Cards.Count; i++)
+                                    {
+                                        var card = cardService.Cards[i];
+                                        <option value="@i">@card.CardBrand @card.AccountNumber</option>
+                                    }
+                                </select>
+                                @if (selectedStandardCard is not null)
+                                {
+                                    <div class="alert alert-info py-2 small mb-2">
+                                        Card Number (paste below): <code>@selectedStandardCard.AccountNumber</code>
+                                    </div>
+                                }
+                            }
+                            <label id="flexcx-cardNumber-label" class="form-label">Card Number</label>
+                            <div id="flexcx-number-field-status" class="text-muted small"></div>
+                            <div id="flexcx-number-container" class="border border-1 rounded p-2 mb-2" style="width: 300px; height: 40px;"></div>
+                            <label for="flexcx-securityCode-container" class="form-label">Security Code</label>
+                            <div id="flexcx-securityCode-container" class="border border-1 rounded p-2 mb-2" style="background-color:white; width: 100px; height: 40px;"></div>
+
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label for="flexcx-expMonth" class="form-label">Expiry month</label>
+                                    <select id="flexcx-expMonth" class="form-control" @bind="selectedExpMonth">
+                                        <option>01</option><option>02</option><option>03</option><option>04</option>
+                                        <option>05</option><option>06</option><option>07</option><option>08</option>
+                                        <option>09</option><option>10</option><option>11</option><option>12</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="flexcx-expYear" class="form-label">Expiry year</label>
+                                    <select id="flexcx-expYear" class="form-control" @bind="selectedExpYear">
+                                        <option>2026</option><option>2027</option><option>2028</option><option>2029</option><option>2030</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        @if (decodedTransientToken is not null)
+                        {
+                            <h6>Transient Token</h6>
+                            <ul>
+                                @foreach (var propertyValue in decodedTransientToken)
+                                {
+                                    <li>@propertyValue</li>
+                                }
+                            </ul>
+
+                            <hr class="my-3">
+                            <h6>Provision Network Token (Non-Payment)</h6>
+                            <p class="text-muted small">
+                                Independent of the payment flow below: uses this transient token to provision a
+                                network token (<code>POST /tms/v2/tokenize</code>, then <code>GET /tms/v2/tokenized-cards/{id}</code>).
+                                No payment is submitted.
+                            </p>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ProvisionNetworkToken" disabled="@ntProvisionBusy">
+                                @(ntProvisionBusy ? "Provisioning…" : "Provision Network Token")
+                            </button>
+
+                            @if (ntProvisionError is not null)
+                            {
+                                <div class="alert alert-danger mt-2">@ntProvisionError</div>
+                            }
+
+                            @if (ntProvisionResult is not null)
+                            {
+                                <table class="table table-bordered table-sm mt-2">
+                                    <tbody>
+                                        <tr>
+                                            <th scope="row">Network Token ID</th>
+                                            <td>@(ntProvisionResult.Id ?? "—")</td>
+                                        </tr>
+                                        <tr>
+                                            <th scope="row">State</th>
+                                            <td>@(ntProvisionResult.State ?? "—")</td>
+                                        </tr>
+                                        <tr>
+                                            <th scope="row">Network Token Number</th>
+                                            <td>@(ntProvisionResult.Number ?? "—")</td>
+                                        </tr>
+                                        <tr>
+                                            <th scope="row">Expiration</th>
+                                            <td>@(ntProvisionResult.ExpirationMonth ?? "—")/@(ntProvisionResult.ExpirationYear ?? "—")</td>
+                                        </tr>
+                                        <tr>
+                                            <th scope="row">Card Type</th>
+                                            <td>@(ntProvisionResult.Type ?? "—")</td>
+                                        </tr>
+                                        <tr>
+                                            <th scope="row">Enrollment ID</th>
+                                            <td>@(ntProvisionResult.EnrollmentId ?? "—")</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            }
+                        }
+                        else
+                        {
+                            <p class="text-danger">@error</p>
+                        }
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (!showTransToken)
+                    {
+                        <button type="button" id="flexcx-pay-button" class="btn btn-primary">Create Transient Token</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary" type="button" @onclick="SubmitTransTokenPaSetup">
+                            Continue with 3DS (Recommended)
+                        </button>
+                        <button class="btn btn-outline-primary" type="button" @onclick="SubmitTransTokenPayment">
+                            Authorize Now
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Modal: Challenge (3DS step-up) ───────────────────────────────────────── *@
+@if (stage == Stage.Challenge)
+{
+    <div class="modal d-block" tabindex="-1" style="background:rgba(0,0,0,.45)">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Verify Your Identity</h5>
+                </div>
+                <div class="modal-body">
+                    <iframe id="flexcx-step-up-iframe" name="flexcxStepUpIframe" height="390" width="100%" class="border" allow="payment"></iframe>
+                    <form id="flexcx-step-up-form" target="flexcxStepUpIframe" method="post" action="@stepUpAuthUrl">
+                        <input type="hidden" name="JWT" value="@stepUpJwt" />
+                        <input type="hidden" name="MD" value="@stepUpMd" />
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" type="button" @onclick="ValidateOnly" disabled="@(!canManualContinue)">
+                        Validate Only
+                    </button>
+                    <button class="btn btn-primary" type="button" @onclick="ValidateAndAuthorize" disabled="@(!canManualContinue)">
+                        Validate &amp; Authorize
+                    </button>
+                    <p class="text-muted small mb-0 mt-2 w-100">
+                        Local testing: if the challenge completes but this modal does not advance
+                        automatically (Chrome blocks the public-to-localhost callback), click one of
+                        the buttons above — CyberSource already has the challenge result.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="offcanvas offcanvas-start" tabindex="-1" id="offcanvasFlexCx" aria-labelledby="offcanvasFlexCxLabel">
+    <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="offcanvasFlexCxLabel">Error Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+        <pre>@(_transactionJson is not null ? JsonLogFormatter.Pretty(_transactionJson) : error)</pre>
+    </div>
+</div>
+
+<script src="https://testflex.cybersource.com/microform/bundle/v2/flex-microform.min.js" onload="flexcx_scriptLoadedHandler()"></script>
+
+<script>
+
+    window.flexcx_scriptLoaded = false;
+
+    function flexcx_scriptLoadedHandler() {
+        console.log("flexcx: flex-microform.min.js has loaded");
+        window.flexcx_scriptLoaded = true;
+    }
+
+    window.flexcx_setDotNetReference = function (dotNetHelper) {
+        window.flexcx_dotNetObjectReference = dotNetHelper;
+        console.log("flexcx: dotNetObjectReference set.");
+    };
+
+    // Holds the currently-active Flex Microform instance so the Pay button
+    // (bound once) always tokenizes against the latest fields, even after
+    // flexcx_retryFlexFields() recreates them.
+    window.flexcx_fields = { microform: null };
+
+    function flexcx_initFlexFields() {
+        var dotNetObjectReference = window.flexcx_currentDotNetRef;
+        var jwt = window.flexcx_currentJwt;
+
+        var statusDiv = document.getElementById('flexcx-status');
+        var numberStatusDiv = document.getElementById('flexcx-number-field-status');
+        var errorsOutput = document.querySelector('#flexcx-errors-output');
+        var numberContainer = document.getElementById('flexcx-number-container');
+        var securityCodeContainer = document.getElementById('flexcx-securityCode-container');
+
+        errorsOutput.textContent = '';
+        errorsOutput.className = '';
+        statusDiv.textContent = 'Initializing FlexMicroform...';
+        statusDiv.className = 'text-muted small mb-2';
+
+        // Clear out any previously-inserted (possibly broken) field iframes first —
+        // CyberSource's testflex sandbox occasionally returns an intermittent HTTP 520
+        // for a field's nested iframe instead of the field rendering, with no JS error
+        // we can reliably catch, so a manual reload is the fallback (see the button below).
+        numberContainer.innerHTML = '';
+        securityCodeContainer.innerHTML = '';
+
+        var flex = new Flex(jwt);
+        var microform = flex.microform('card');
+        var number = microform.createField('number', { placeholder: 'Enter card number' });
+        var securityCode = microform.createField('securityCode', { placeholder: '•••' });
+
+        window.flexcx_fields.microform = microform;
+
+        number.load('#flexcx-number-container');
+        securityCode.load('#flexcx-securityCode-container');
+
+        statusDiv.textContent = 'FlexMicroform ready — enter card details';
+        statusDiv.className = 'text-success small mb-2';
+
+        number.on('change', function (data) {
+            dotNetObjectReference.invokeMethodAsync('LogFlexEvent', 'number:change', JSON.stringify(data));
+            var msg = '';
+            if (data.card && data.card.length > 0) {
+                msg += 'Detected: ' + data.card.map(function (c) { return c.name; }).join('/');
+            }
+            if (data.valid !== undefined) {
+                msg += (msg ? ' | ' : '') + (data.valid ? 'Valid' : 'Incomplete/Invalid');
+            }
+            if (data.empty) { msg = 'Enter card number'; }
+            numberStatusDiv.textContent = msg;
+            numberStatusDiv.className = data.valid ? 'text-success small' : 'text-warning small';
+        });
+    }
+
+    window.flexcx_retryFlexFields = function () {
+        console.log('flexcx: retrying FlexMicroform field load');
+        flexcx_initFlexFields();
+    };
+
+    window.flexcx_executeFlexScript = function (dotNetObjectReference, jwt) {
+        console.log("flexcx: inside flexcx_executeFlexScript");
+
+        window.flexcx_currentDotNetRef = dotNetObjectReference;
+        window.flexcx_currentJwt = jwt;
+
+        var payButton = document.querySelector('#flexcx-pay-button');
+        var errorsOutput = document.querySelector('#flexcx-errors-output');
+        var statusDiv = document.getElementById('flexcx-status');
+
+        flexcx_initFlexFields();
+
+        payButton.addEventListener('click', function () {
+            statusDiv.textContent = 'Tokenizing...';
+            statusDiv.className = 'text-info small mb-2';
+            errorsOutput.textContent = '';
+            errorsOutput.className = '';
+
+            var options = {
+                expirationMonth: document.querySelector('#flexcx-expMonth').value,
+                expirationYear: document.querySelector('#flexcx-expYear').value
+            };
+
+            window.flexcx_fields.microform.createToken(options, function (err, token) {
+                if (err) {
+                    console.error('flexcx: createToken error:', JSON.stringify(err));
+                    dotNetObjectReference.invokeMethodAsync('LogFlexEvent', 'createToken:error', JSON.stringify(err));
+                    var message;
+                    if (Array.isArray(err)) {
+                        message = err.map(function (e) {
+                            return (e.location ? e.location + ': ' : '') + (e.message || JSON.stringify(e));
+                        }).join('; ');
+                    } else {
+                        message = err.message || JSON.stringify(err);
+                    }
+                    errorsOutput.textContent = message;
+                    errorsOutput.className = 'alert alert-danger';
+                    statusDiv.textContent = 'Tokenization failed — see error above';
+                    statusDiv.className = 'text-danger small mb-2';
+                } else {
+                    console.log("flexcx: Transient Token from Flex Script received");
+                    dotNetObjectReference.invokeMethodAsync('ReceiveTransientToken', token);
+                }
+            });
+        });
+    };
+
+    window.flexcx_submitCardinal = function () {
+        var cardinalForm = document.getElementById('flexcx-collection-form');
+        if (cardinalForm) {
+            console.log('flexcx: Cardinal Form found — submitting form.');
+            cardinalForm.submit();
+        } else {
+            console.log('flexcx: Cardinal Form NOT found — cannot submit.');
+        }
+    };
+
+    window.addEventListener("message", function (event) {
+        if (event.origin === "https://centinelapistag.cardinalcommerce.com") {
+            console.log("flexcx: Received message from Cardinal DDC iframe");
+            if (window.flexcx_dotNetObjectReference) {
+                window.flexcx_dotNetObjectReference.invokeMethodAsync('ReceiveDataCollectionResponse', event.data);
+            } else {
+                console.error('flexcx: dotNetObjectReference is not set.');
+            }
+        }
+    }, false);
+
+    window.flexcx_collectBrowserDeviceInfo = function () {
+        return {
+            language: navigator.language || navigator.userLanguage || "",
+            userAgent: navigator.userAgent || "",
+            screenHeight: String(screen.height),
+            screenWidth: String(screen.width),
+            colorDepth: String(screen.colorDepth),
+            timeDifference: String(new Date().getTimezoneOffset()),
+            javaEnabled: String(navigator.javaEnabled ? navigator.javaEnabled() : false)
+        };
+    };
+
+    window.flexcx_submitStepUp = function () {
+        var stepUpForm = document.getElementById('flexcx-step-up-form');
+        if (stepUpForm) {
+            console.log('flexcx: step-up form found — submitting.');
+            stepUpForm.submit();
+        } else {
+            console.error('flexcx: flexcx-step-up-form not found in DOM at time of JS call.');
+        }
+    };
+
+</script>
+
+@code {
+
+    private enum Stage { CustomerEntry, CardEntry, DeviceCollect, EnrollReview, Challenge, Result, Failed }
+
+    private Stage stage = Stage.CustomerEntry;
+
+    private List<string> HomeFormElements = new List<string> { "ShowMainForm", "ShowBilling", "ShowDefaults", "ShowAuthCapture", "ShowCart" };
+
+    // ── Shared flow state ────────────────────────────────────────────────────
+    private B2cCustomer b2CCustomer = new();
+    private SessionTransJson sessionTransJson = new();
+    private CaptureContextDto captureContextDto = new();
+    private CheckEnrollDto checkEnrollDto = new();
+    private FollowOnTransResponse followOnTransResponse = new();
+
+    private string? jwt;                 // Flex Microform capture-context JWT
+    private string? transientToken;      // jti (used by /risk/v1/authentications tokenInformation.transientToken)
+    private string? transientCtxToken;   // full transient token JWT
+    private string? fullName;
+    private string? error;
+    private string? paSetupAccessToken;  // PA setup accessToken -> Cardinal DDC JWT
+    private string? paSetupReferenceId;  // PA setup consumerAuthenticationInformation.referenceId -> carried into Check Enrollment
+    private string? authenticationTransactionId;
+    private string? stepUpAuthUrl;
+    private string? stepUpJwt;
+    private string? stepUpMd;
+    private string resultTitle = string.Empty;
+
+    private bool showTransToken = false;
+    private bool enrollSubmitted = false;
+    private bool showAuthorizeButton = false;
+
+    // ── Test-card dropdown state (CardEntry stage) ───────────────────────────
+    private PayerAuthTestCardDto? selectedPaCard;
+    private PayerAuthCardSampleDto? selectedStandardCard;
+    private NetworkTokenTestCardDto? selectedNetworkTokenTestCard;
+    private string selectedExpMonth = "12";
+    private string selectedExpYear = "2027";
+
+    private IEnumerable<IGrouping<string, PayerAuthTestCardDto>> GroupedPaCards =>
+        payerAuthTestCardService.Cards
+            .OrderBy(c => c.TestCaseId, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(c => c.CardBrand)
+            .GroupBy(c => c.TestCaseGroupLabel);
+
+    private void OnPaCardSelected(ChangeEventArgs e)
+    {
+        selectedPaCard = int.TryParse(e.Value?.ToString(), out var id)
+            ? payerAuthTestCardService.Cards.FirstOrDefault(c => c.SamplePayAuthPaymentCardId == id)
+            : null;
+
+        if (selectedPaCard is not null)
+        {
+            selectedExpMonth = selectedPaCard.ExpMonth ?? selectedExpMonth;
+            selectedExpYear = selectedPaCard.ExpYear ?? selectedExpYear;
+        }
+    }
+
+    private void OnStandardCardSelected(ChangeEventArgs e)
+    {
+        // Indexes into cardService.Cards, not SamplePayAuthPaymentCardId: that field is always 0
+        // when this list is populated from PaymentCardSampleData (its real PK is SamplePaymentCardId,
+        // a JSON-property-name mismatch pre-existing in PayerAuthCardSampleDto/CardService).
+        selectedStandardCard = int.TryParse(e.Value?.ToString(), out var index) && index >= 0 && index < cardService.Cards.Count
+            ? cardService.Cards[index]
+            : null;
+
+        if (selectedStandardCard is not null)
+        {
+            selectedExpMonth = selectedStandardCard.ExpMonth ?? selectedExpMonth;
+            selectedExpYear = selectedStandardCard.ExpYear ?? selectedExpYear;
+        }
+    }
+
+    private void OnNetworkTokenTestCardSelected(ChangeEventArgs e)
+    {
+        selectedNetworkTokenTestCard = int.TryParse(e.Value?.ToString(), out var id)
+            ? networkTokenTestCardService.Cards.FirstOrDefault(c => c.NetworkTokenTestCardId == id)
+            : null;
+
+        if (selectedNetworkTokenTestCard is not null)
+        {
+            selectedExpMonth = selectedNetworkTokenTestCard.ExpMonth ?? selectedExpMonth;
+            selectedExpYear = selectedNetworkTokenTestCard.ExpYear ?? selectedExpYear;
+        }
+    }
+
+    private bool canManualContinue => !string.IsNullOrEmpty(authenticationTransactionId);
+
+    private DotNetObjectReference<FlexConsolidatedCheckout>? _dotNetRef;
+    private JsonNode? _transactionJson;
+    private List<string> propertyValues = new();
+    public Dictionary<string, string>? decodedTransientToken { get; private set; }
+    private static List<BasicErrorInfo> basicErrorInfos = new List<BasicErrorInfo>();
+
+    // Deferred JS actions, run from OnAfterRenderAsync regardless of firstRender,
+    // since stage transitions happen via event handlers, not page loads.
+    private bool _cardScriptInitPending = false;
+    private bool _cardinalSubmitPending = false;
+    private bool _stepUpSubmitPending = false;
+
+    // ── Provision Network Token (non-payment) state ──────────────────────────
+    // Uses the Flex Microform transientCtxToken already captured by ReceiveTransientToken
+    // below — no separate card entry. Non-payment: does not touch stage/session state.
+    private bool ntProvisionBusy;
+    private string? ntProvisionError;
+    private NetworkTokenProvisionResultDto? ntProvisionResult;
+
+    // Guards the auto-invoked Network Token Test capture-context creation (see
+    // OnSelectNetworkTokenTest) against double-firing if the radio's onchange fires twice.
+    private bool ntAutoStarted = false;
+
+    protected override void OnInitialized()
+    {
+        _dotNetRef = DotNetObjectReference.Create(this);
+        sessionTransactions.DeleteAll();
+        customersScoped.DeleteAll();
+
+        // transactionModeState is Scoped (persists per circuit across in-app navigation) —
+        // always start this page fresh on Standard rather than showing whatever mode was
+        // last active on another page in the same circuit.
+        transactionModeState.SetMode(TransactionMode.Standard);
+    }
+
+    private async Task ProvisionNetworkToken()
+    {
+        if (string.IsNullOrWhiteSpace(transientCtxToken))
+        {
+            return;
+        }
+
+        ntProvisionError = null;
+        ntProvisionResult = null;
+        ntProvisionBusy = true;
+
+        try
+        {
+            var result = await CallMinAPIs.ProvisionNetworkTokenAsync(transientCtxToken);
+            if (result.Error is not null)
+            {
+                ntProvisionError = $"{result.Error.Error}: {result.Error.Message}";
+            }
+            else
+            {
+                ntProvisionResult = result.Data;
+            }
+        }
+        catch (Exception ex)
+        {
+            ntProvisionError = "Error: " + ex.Message;
+        }
+        finally
+        {
+            ntProvisionBusy = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("flexcx_setDotNetReference", _dotNetRef);
+        }
+
+        if (_cardScriptInitPending)
+        {
+            _cardScriptInitPending = false;
+
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!await JSRuntime.InvokeAsync<bool>("eval", "window.flexcx_scriptLoaded === true"))
+            {
+                if (DateTime.UtcNow > deadline)
+                {
+                    Console.WriteLine("flexcx: FlexMicroform script load timed out after 10 seconds.");
+                    Fail("FlexMicroform failed to load. Check your network connection and that testflex.cybersource.com is reachable.");
+                    return;
+                }
+                await Task.Delay(100);
+            }
+            await JSRuntime.InvokeVoidAsync("flexcx_executeFlexScript", _dotNetRef, jwt);
+        }
+
+        if (_cardinalSubmitPending)
+        {
+            _cardinalSubmitPending = false;
+            await Task.Delay(150);
+            await JSRuntime.InvokeVoidAsync("flexcx_submitCardinal");
+        }
+
+        if (_stepUpSubmitPending)
+        {
+            _stepUpSubmitPending = false;
+            await Task.Delay(300);
+            await JSRuntime.InvokeVoidAsync("flexcx_submitStepUp");
+        }
+    }
+
+    private string StageBadge(Stage s) => stage == s ? "active" : (StageIndex(stage) > StageIndex(s) ? "text-success" : "disabled");
+
+    private int StageIndex(Stage s) => s switch
+    {
+        Stage.CustomerEntry => 0,
+        Stage.CardEntry => 1,
+        Stage.DeviceCollect => 2,
+        Stage.EnrollReview => 3,
+        Stage.Challenge => 4,
+        Stage.Result => 5,
+        _ => -1
+    };
+
+    // ── Stage 1: Customer entry -> FLEX_CHECKOUT (capture context) ─────────
+
+    private async Task SubmitCustomer(B2cCustomer submittedCustomer)
+    {
+        try
+        {
+            b2CCustomer = new();
+
+            b2CCustomer.Address1 = submittedCustomer.Address1;
+            b2CCustomer.Address2 = submittedCustomer.Address2 ?? "none";
+            b2CCustomer.Address3 = submittedCustomer.Address3 ?? "none";
+            b2CCustomer.AdministrativeArea = submittedCustomer.AdministrativeArea ?? "FU";
+            b2CCustomer.Country = submittedCustomer.Country;
+            b2CCustomer.BuildingNumber = submittedCustomer.BuildingNumber ?? "none";
+            b2CCustomer.District = submittedCustomer.District ?? "none";
+            b2CCustomer.City = submittedCustomer.City;
+            b2CCustomer.PostalCode = submittedCustomer.PostalCode;
+            b2CCustomer.CompanyName = submittedCustomer.CompanyName ?? "none";
+            b2CCustomer.CompanyAddress1 = submittedCustomer.Address1 ?? "none";
+            b2CCustomer.CompanyAdministrativeArea = submittedCustomer.AdministrativeArea ?? "FU";
+            b2CCustomer.CompanyBuildingNumber = submittedCustomer.CompanyBuildingNumber ?? "none";
+            b2CCustomer.CompanyCountry = submittedCustomer.Country ?? "none";
+            b2CCustomer.CompanyDistrict = submittedCustomer.CompanyDistrict ?? "none";
+            b2CCustomer.CompanyLocality = submittedCustomer.CompanyLocality ?? "none";
+            b2CCustomer.CompanyPostalCode = submittedCustomer.PostalCode ?? "none";
+            b2CCustomer.Email = submittedCustomer.Email;
+            b2CCustomer.FirstName = submittedCustomer.FirstName;
+            b2CCustomer.LastName = submittedCustomer.LastName;
+            b2CCustomer.MiddleName = submittedCustomer.MiddleName ?? "none";
+            b2CCustomer.Title = submittedCustomer.Title ?? "none";
+            b2CCustomer.Phone = submittedCustomer.Phone;
+            b2CCustomer.PhoneType = submittedCustomer.PhoneType ?? "none";
+            b2CCustomer.ShippingAddress1 = submittedCustomer.Address1;
+            b2CCustomer.ShippingAddress2 = submittedCustomer.Address2 ?? "none";
+            b2CCustomer.ShippingAddress3 = submittedCustomer.Address3 ?? "none";
+            b2CCustomer.ShippingAdministrativeArea = submittedCustomer.AdministrativeArea ?? "FU";
+            b2CCustomer.ShippingBuildingNumber = submittedCustomer.BuildingNumber ?? "none";
+            b2CCustomer.ShippingCountry = submittedCustomer.Country;
+            b2CCustomer.ShippingCity = submittedCustomer.City;
+            b2CCustomer.ShippingPostalCode = submittedCustomer.PostalCode;
+            b2CCustomer.ShippingFirstName = submittedCustomer.FirstName;
+            b2CCustomer.ShippingLastName = submittedCustomer.LastName;
+            b2CCustomer.ShippingPhone = submittedCustomer.Phone;
+            b2CCustomer.ShippingPhoneType = submittedCustomer.PhoneType ?? "none";
+            b2CCustomer.TotalAmount = submittedCustomer.TotalAmount;
+            b2CCustomer.AllowPartialAuth = submittedCustomer.AllowPartialAuth;
+            b2CCustomer.Cart = submittedCustomer.Cart;
+            b2CCustomer.TargetOrigin = new Uri(Navigation.BaseUri).GetLeftPart(UriPartial.Authority);
+
+            await CreateFlexCaptureContextAndShowCard();
+        }
+        catch (Exception ex)
+        {
+            Fail("Error: " + ex.Message);
+        }
+    }
+
+    // Shared FLEX_CHECKOUT capture-context creation, used by both the form-driven
+    // SubmitCustomer path and the auto-invoked Network Token Test path below.
+    private async Task CreateFlexCaptureContextAndShowCard()
+    {
+        fullName = ((b2CCustomer.FirstName ?? string.Empty) + " " + (b2CCustomer.LastName ?? string.Empty)).Trim();
+
+        sessionTransJson = new();
+        sessionTransJson.OriginalTransactionType = CcTransactionTypes.FLEX_CHECKOUT;
+        sessionTransJson.CurrentTransactionType = CcTransactionTypes.FLEX_CHECKOUT;
+        sessionTransJson.Customer = b2CCustomer;
+
+        customersScoped.AddCustData(b2CCustomer);
+        sessionTransactions.AddTrans(sessionTransJson);
+
+        var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+        string jsonString = JsonSerializer.Serialize(b2CCustomer, options);
+
+        SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+            sessionTransactions, CcTransactionTypes.FLEX_CHECKOUT);
+
+        if (HasError(sessionResponse, out _))
+        {
+            Fail(sessionResponse?.error ?? "Unable to create Flex capture context", sessionResponse);
+            return;
+        }
+
+        sessionTransactions.AddTrans(sessionResponse!);
+
+        captureContextDto = JsonSerializer.Deserialize<CaptureContextDto>(sessionResponse!.TransactionJson)!;
+        jwt = captureContextDto.Ctx;
+
+        stage = Stage.CardEntry;
+        showTransToken = false;
+        _cardScriptInitPending = true;
+        StateHasChanged();
+    }
+
+    // Network Token Test needs no consumer information (name, address, etc.), so selecting
+    // it skips CustomerMasterComponent entirely and immediately creates the Flex capture
+    // context with a minimal placeholder customer.
+    private async Task OnSelectNetworkTokenTest()
+    {
+        transactionModeState.SetMode(TransactionMode.NetworkTokenTest);
+
+        if (ntAutoStarted || stage != Stage.CustomerEntry)
+        {
+            return;
+        }
+
+        ntAutoStarted = true;
+        StateHasChanged();
+
+        try
+        {
+            b2CCustomer = new()
+            {
+                RequiresCardDetails = false,
+                IsNetworkTokenTest = true,
+                FirstName = "none",
+                LastName = "none",
+                FullName = "none",
+                ShippingFirstName = "none",
+                ShippingLastName = "none",
+                ShippingFullName = "none",
+                TargetOrigin = new Uri(Navigation.BaseUri).GetLeftPart(UriPartial.Authority)
+            };
+
+            await CreateFlexCaptureContextAndShowCard();
+        }
+        catch (Exception ex)
+        {
+            ntAutoStarted = false;
+            Fail("Error: " + ex.Message);
+        }
+    }
+
+    // ── Stage 2: Card entry -> tokenize (JS interop) ────────────────────────
+
+    [JSInvokable]
+    public void ReceiveTransientToken(string tt)
+    {
+        Console.WriteLine($"flexcx: Transient Token received: {tt}");
+
+        if (tt is null)
+        {
+            error = "No Transient Token received";
+            StateHasChanged();
+            return;
+        }
+
+        transientCtxToken = tt;
+        sessionTransJson.TransientToken = transientCtxToken;
+
+        decodedTransientToken = JWTItems.DecodeJWT(tt);
+
+        foreach (var kvp in decodedTransientToken)
+        {
+            if (kvp.Key == "jti")
+            {
+                transientToken = kvp.Value;
+                diTransientToken.DeleteTt();
+                diTransientToken.SetTt(transientToken);
+            }
+        }
+
+        if (transientToken is not null)
+        {
+            sessionTransJson.TransientToken = transientToken;
+        }
+
+        if (customersScoped.CustData.Any() && customersScoped.CustData.LastOrDefault() is not null)
+        {
+            customersScoped.CustData.LastOrDefault()!.TransientTokenJwt = transientCtxToken;
+            customersScoped.CustData.LastOrDefault()!.TransientToken = transientToken;
+        }
+
+        showTransToken = true;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void LogFlexEvent(string eventName, string data)
+    {
+        Console.WriteLine($"flexcx: FlexMicroform [{eventName}]: {data}");
+    }
+
+    // (a) Direct authorize — skips Payer Authentication entirely.
+    private async Task SubmitTransTokenPayment()
+    {
+        try
+        {
+            CtxPaymentDto ctxPaymentDto = new();
+
+            ctxPaymentDto.TokenInformation!.TransientTokenJwt = transientCtxToken;
+            ctxPaymentDto.ClientReferenceInformation!.Code = Guid.NewGuid().ToString();
+            ctxPaymentDto.OrderInformation!.AmountDetails!.AuthorizedAmount = b2CCustomer.TotalAmount.HasValue ? b2CCustomer.TotalAmount.Value.ToString("0.00") : "0.00";
+            ctxPaymentDto.OrderInformation!.AmountDetails.TotalAmount = b2CCustomer.TotalAmount.HasValue ? b2CCustomer.TotalAmount.Value.ToString("0.00") : "0.00";
+            ctxPaymentDto.OrderInformation!.AmountDetails.Currency = b2CCustomer.Currency;
+            ctxPaymentDto.B2cCustomerId = captureContextDto.B2cCustomerId;
+            ctxPaymentDto.OrderId = captureContextDto.OrderId;
+            ctxPaymentDto.OrderInformation.BillTo!.FirstName = b2CCustomer.FirstName;
+            ctxPaymentDto.OrderInformation.BillTo!.LastName = b2CCustomer.LastName;
+            ctxPaymentDto.OrderInformation.BillTo!.Email = b2CCustomer.Email;
+            ctxPaymentDto.OrderInformation.BillTo!.PhoneNumber = b2CCustomer.Phone;
+            ctxPaymentDto.OrderInformation.BillTo!.Address1 = b2CCustomer.Address1;
+            ctxPaymentDto.OrderInformation.BillTo!.Locality = b2CCustomer.City;
+            ctxPaymentDto.OrderInformation.BillTo!.AdministrativeArea = b2CCustomer.AdministrativeArea;
+            ctxPaymentDto.OrderInformation.BillTo!.PostalCode = b2CCustomer.PostalCode;
+            ctxPaymentDto.OrderInformation.BillTo!.Country = b2CCustomer.Country;
+
+            if (b2CCustomer.AllowPartialAuth)
+            {
+                ctxPaymentDto.ProcessingInformation!.AuthorizationOptions = new AuthorizationOptions { PartialAuthIndicator = true };
+            }
+
+            sessionTransJson = new();
+            sessionTransJson.CurrentTransactionType = CcTransactionTypes.FLEX_CHECKOUT_PAYMENT;
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(ctxPaymentDto, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, CcTransactionTypes.FLEX_CHECKOUT_PAYMENT);
+
+            if (HasError(sessionResponse, out _) || sessionResponse!.JsonTransactionStateValues != TransactionStateValues.Complete)
+            {
+                Fail(sessionResponse?.error ?? "Authorization failed", sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse);
+            ShowResult(sessionResponse, "Authorization Result");
+        }
+        catch (Exception ex)
+        {
+            Fail("Error: " + ex.Message);
+        }
+    }
+
+    // (b) Continue with 3DS -> FLEX_PA_SETUP, then device collection.
+    private async Task SubmitTransTokenPaSetup()
+    {
+        try
+        {
+            CtxPaymentDto ctxPaymentDto = new();
+            ctxPaymentDto.TokenInformation!.TransientToken = transientToken;
+
+            sessionTransJson = new();
+            sessionTransJson.Customer = b2CCustomer;
+            sessionTransJson.TransientToken = transientToken;
+            sessionTransJson.CurrentTransactionType = CcTransactionTypes.FLEX_PA_SETUP;
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(ctxPaymentDto, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, CcTransactionTypes.FLEX_PA_SETUP);
+
+            if (HasError(sessionResponse, out _))
+            {
+                Fail(sessionResponse?.error ?? "Payer Authentication setup failed", sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse!);
+
+            var pASetupResponse = JsonSerializer.Deserialize<PASetupResponse>(sessionResponse!.TransactionJson)!;
+            paSetupAccessToken = pASetupResponse.ConsumerAuthenticationInformation?.AccessToken;
+            paSetupReferenceId = pASetupResponse.ConsumerAuthenticationInformation?.ReferenceId;
+
+            stage = Stage.DeviceCollect;
+            _cardinalSubmitPending = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Fail("Error: " + ex.Message);
+        }
+    }
+
+    // ── Stage 3: Device collection (Cardinal DDC + browser fields) ─────────
+
+    [JSInvokable]
+    public async Task ReceiveDataCollectionResponse(string dataCollectResponse)
+    {
+        Console.WriteLine($"flexcx: Data Collection Response: {dataCollectResponse}");
+
+        if (dataCollectResponse is null)
+        {
+            Fail("No Data Collection Event Recorded");
+            return;
+        }
+
+        var deviceRaw = await JSRuntime.InvokeAsync<BrowserDeviceInfo>("flexcx_collectBrowserDeviceInfo");
+        var ip = clientIpService.IpAddress;
+
+        sessionTransJson.DeviceInformation = new DeviceInformation
+        {
+            IpAddress = ip,
+            HttpBrowserLanguage = deviceRaw.Language,
+            UserAgentBrowserValue = deviceRaw.UserAgent,
+            HttpBrowserScreenHeight = deviceRaw.ScreenHeight,
+            HttpBrowserScreenWidth = deviceRaw.ScreenWidth,
+            HttpBrowserColorDepth = deviceRaw.ColorDepth,
+            HttpBrowserTimeDifference = deviceRaw.TimeDifference,
+            HttpBrowserJavaEnabled = bool.TryParse(deviceRaw.JavaEnabled, out var javaEnabled) && javaEnabled,
+            HttpBrowserJavaScriptEnabled = true,
+            HttpAcceptContent = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        };
+
+        BuildCheckEnrollDto();
+
+        stage = Stage.EnrollReview;
+        enrollSubmitted = false;
+        StateHasChanged();
+    }
+
+    private class BrowserDeviceInfo
+    {
+        public string Language { get; set; } = string.Empty;
+        public string UserAgent { get; set; } = string.Empty;
+        public string ScreenHeight { get; set; } = string.Empty;
+        public string ScreenWidth { get; set; } = string.Empty;
+        public string ColorDepth { get; set; } = string.Empty;
+        public string TimeDifference { get; set; } = string.Empty;
+        public string JavaEnabled { get; set; } = string.Empty;
+    }
+
+    // ── Stage 4: Check Enrollment (combined enroll+auth call) ───────────────
+
+    private void BuildCheckEnrollDto()
+    {
+        checkEnrollDto = new CheckEnrollDto
+        {
+            BuyerInformation = new(),
+            OrderInformation = new() { BillTo = new(), AmountDetails = new() },
+            ConsumerAuthenticationInformation = new(),
+            TokenInformation = new TokenInformation()
+        };
+
+        checkEnrollDto.BuyerInformation!.MobilePhone = b2CCustomer.Phone ?? null;
+        checkEnrollDto.OrderInformation!.AmountDetails!.Currency = b2CCustomer.Currency;
+        checkEnrollDto.OrderInformation.AmountDetails.TotalAmount = b2CCustomer.TotalAmount.HasValue ? b2CCustomer.TotalAmount.Value.ToString("0.00") : "0.00";
+        checkEnrollDto.OrderInformation.BillTo!.Address1 = b2CCustomer.Address1 ?? null;
+        checkEnrollDto.OrderInformation.BillTo!.AdministrativeArea = b2CCustomer.AdministrativeArea ?? null;
+        checkEnrollDto.OrderInformation.BillTo!.Locality = b2CCustomer.City ?? null;
+        checkEnrollDto.OrderInformation.BillTo!.Country = b2CCustomer.Country ?? null;
+        checkEnrollDto.OrderInformation.BillTo!.PostalCode = b2CCustomer.PostalCode ?? null;
+        checkEnrollDto.OrderInformation.BillTo!.FirstName = b2CCustomer.FirstName ?? null;
+        checkEnrollDto.OrderInformation.BillTo!.LastName = b2CCustomer.LastName ?? null;
+        checkEnrollDto.OrderInformation.BillTo!.Email = b2CCustomer.Email ?? null;
+        checkEnrollDto.TokenInformation!.TransientToken = sessionTransJson.TransientToken!;
+
+        if (b2CCustomer.AllowPartialAuth)
+        {
+            checkEnrollDto.ProcessingInformation = new ProcessingInformation
+            {
+                AuthorizationOptions = new AuthorizationOptions { PartialAuthIndicator = true }
+            };
+        }
+
+        checkEnrollDto.ConsumerAuthenticationInformation!.ReferenceId = paSetupReferenceId;
+        checkEnrollDto.ConsumerAuthenticationInformation.TransactionMode = "eCommerce";
+        checkEnrollDto.ConsumerAuthenticationInformation.DeviceChannel = "BROWSER";
+        checkEnrollDto.ConsumerAuthenticationInformation.ReturnUrl = Navigation.BaseUri + "stepup-callback";
+        checkEnrollDto.DeviceInformation = sessionTransJson.DeviceInformation;
+
+        propertyValues = PropertiesProcessor.GetProperties(checkEnrollDto!);
+    }
+
+    private async Task SubmitCheckEnrollment()
+    {
+        try
+        {
+            enrollSubmitted = true;
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(checkEnrollDto, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, CcTransactionTypes.PA_ENROLL);
+
+            if (HasError(sessionResponse, out _))
+            {
+                Fail(sessionResponse?.error ?? "Check enrollment failed", sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse!);
+
+            followOnTransResponse = JsonSerializer.Deserialize<FollowOnTransResponse>(sessionResponse!.TransactionJson!.ToString())!;
+            propertyValues = PropertiesProcessor.GetProperties(followOnTransResponse!);
+
+            authenticationTransactionId = followOnTransResponse.ConsumerAuthenticationInformation?.AuthenticationTransactionId;
+
+            // Combined enroll+auth call (/pts/v2/payments with CONSUMER_AUTHENTICATION):
+            // a challenge outcome arrives as CUSTOMER_AUTHENTICATION_REQUIRED and stops
+            // before authorization; a frictionless outcome arrives already AUTHORIZED.
+            if (followOnTransResponse.Status == "AUTHORIZED")
+            {
+                ShowResult(sessionResponse, "Frictionless Authorization Result");
+            }
+            else if (followOnTransResponse.Status == "CUSTOMER_AUTHENTICATION_REQUIRED"
+                  || (followOnTransResponse.ConsumerAuthenticationInformation?.ParesStatus == "C"
+                      && followOnTransResponse.ConsumerAuthenticationInformation?.VeresEnrolled == "Y"))
+            {
+                var caInfo = followOnTransResponse.ConsumerAuthenticationInformation!;
+                stepUpAuthUrl = caInfo.StepUpUrl;
+                stepUpJwt = caInfo.AccessToken;
+                stepUpMd = Guid.NewGuid().ToString();
+
+                stage = Stage.Challenge;
+                _stepUpSubmitPending = true;
+                StateHasChanged();
+            }
+            else if (followOnTransResponse.ConsumerAuthenticationInformation?.ParesStatus == "Y")
+            {
+                showAuthorizeButton = true;
+                StateHasChanged();
+            }
+            else if (string.Equals(followOnTransResponse.ErrorInformation?.Reason, "PARTIAL_APPROVAL", StringComparison.OrdinalIgnoreCase))
+            {
+                // CyberSource sandbox behavior for certain total amounts (observed at $3602.00):
+                // the combined enroll+auth call returns HTTP 202 with a numeric "status" and
+                // errorInformation.reason = PARTIAL_APPROVAL instead of the payments-API
+                // PARTIAL_AUTHORIZED status CallMinAPIs otherwise detects. This is a legitimate
+                // outcome (per AppErrorConfig's PARTIAL_AUTHORIZED exclusion), not a failure.
+                ShowResult(sessionResponse, "Partial Approval Result");
+            }
+            else
+            {
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Fail("Error: " + ex.Message);
+        }
+    }
+
+    private async Task AuthorizeFrictionless()
+    {
+        try
+        {
+            var aftValidateDto = BuildAftValidateDto(includeAftIndicator: true);
+            aftValidateDto.ConsumerAuthenticationInformation!.AuthenticationTransactionId = authenticationTransactionId;
+            aftValidateDto.ProcessingInformation!.ActionList = new string[] { "VALIDATE_CONSUMER_AUTHENTICATION", "TOKEN_CREATE" };
+            aftValidateDto.ProcessingInformation.ActionTokenTypes = new string[] { "paymentInstrument, instrumentIdentifier" };
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(aftValidateDto, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, CcTransactionTypes.FLEX_AFT_VALIDATE_AUTH);
+
+            if (HasError(sessionResponse, out _))
+            {
+                Fail(sessionResponse?.error ?? "Frictionless authorization failed", sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse!);
+            ShowResult(sessionResponse!, "Frictionless Authorization Result");
+        }
+        catch (Exception ex)
+        {
+            Fail("Error: " + ex.Message);
+        }
+    }
+
+    // ── Stage 5: Challenge (3DS step-up) ─────────────────────────────────────
+
+    private async Task ValidateOnly()
+    {
+        try
+        {
+            var aftValidateDto = new AftValidateDto
+            {
+                ConsumerAuthenticationInformation = new ConsumerAuthenticationInformation
+                {
+                    AuthenticationTransactionId = authenticationTransactionId
+                },
+                PaymentInformation = new PaymentInformation
+                {
+                    Card = new FullCard { Type = "001" }
+                }
+            };
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(aftValidateDto, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, CcTransactionTypes.PA_VALIDATE);
+
+            if (HasError(sessionResponse, out _))
+            {
+                Fail(sessionResponse?.error ?? "Validation failed", sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse!);
+            ShowResult(sessionResponse!, "Validation Result");
+        }
+        catch (Exception ex)
+        {
+            Fail("Error: " + ex.Message);
+        }
+    }
+
+    private async Task ValidateAndAuthorize()
+    {
+        try
+        {
+            var aftValidateDto = BuildAftValidateDto(includeAftIndicator: true);
+            aftValidateDto.ConsumerAuthenticationInformation!.AuthenticationTransactionId = authenticationTransactionId;
+            aftValidateDto.ProcessingInformation!.ActionList = new string[] { "VALIDATE_CONSUMER_AUTHENTICATION", "TOKEN_CREATE" };
+            aftValidateDto.ProcessingInformation.ActionTokenTypes = new string[] { "paymentInstrument, instrumentIdentifier" };
+            aftValidateDto.TokenInformation!.TransientTokenJwt = b2CCustomer.TransientTokenJwt ?? transientCtxToken;
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(aftValidateDto, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, CcTransactionTypes.FLEX_AFT_VALIDATE_AUTH);
+
+            if (HasError(sessionResponse, out _))
+            {
+                Fail(sessionResponse?.error ?? "Validation and authorization failed", sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse!);
+            ShowResult(sessionResponse!, "Validation & Authorization Result");
+        }
+        catch (Exception ex)
+        {
+            Fail("Error: " + ex.Message);
+        }
+    }
+
+    private AftValidateDto BuildAftValidateDto(bool includeAftIndicator)
+    {
+        return new AftValidateDto
+        {
+            ClientReferenceInformation = new ClientReferenceInformation
+            {
+                Code = "PA" + DateTime.UtcNow.ToString("yyyyMMddHHmmss")
+            },
+            ProcessingInformation = new ProcessingInformation
+            {
+                AuthorizationOptions = new AuthorizationOptions
+                {
+                    AftIndicator = includeAftIndicator ? true : null,
+                    PartialAuthIndicator = b2CCustomer.AllowPartialAuth ? true : null
+                },
+                CommerceIndicator = "internet",
+                BusinessApplicationId = "AA",
+                PurposeOfPayment = "ISACCT"
+            },
+            OrderInformation = new OrderInformation
+            {
+                AmountDetails = new AmountDetails
+                {
+                    TotalAmount = b2CCustomer.TotalAmount.HasValue ? b2CCustomer.TotalAmount.Value.ToString("0.00") : "0.00",
+                    Currency = b2CCustomer.Currency ?? "USD"
+                },
+                BillTo = new BillTo
+                {
+                    FirstName = b2CCustomer.FirstName ?? "null",
+                    LastName = b2CCustomer.LastName ?? "null",
+                    Address1 = b2CCustomer.Address1 ?? "null",
+                    Locality = b2CCustomer.City ?? "null",
+                    AdministrativeArea = b2CCustomer.AdministrativeArea ?? "null",
+                    PostalCode = b2CCustomer.PostalCode ?? "null",
+                    Country = b2CCustomer.Country ?? "null",
+                    PhoneNumber = b2CCustomer.Phone ?? "null",
+                    Email = b2CCustomer.Email ?? "null"
+                }
+            },
+            TokenInformation = new TokenInformation
+            {
+                TransientTokenJwt = b2CCustomer.TransientTokenJwt ?? transientCtxToken
+            },
+            ConsumerAuthenticationInformation = new ConsumerAuthenticationInformation()
+        };
+    }
+
+    // ── Stage 6: Result / Failure ─────────────────────────────────────────────
+
+    private void ShowResult(SessionTransJson sessionResponse, string title)
+    {
+        resultTitle = title;
+
+        if (sessionResponse.TransactionJson is not null)
+        {
+            followOnTransResponse = JsonSerializer.Deserialize<FollowOnTransResponse>(sessionResponse.TransactionJson.ToString())!;
+            propertyValues = PropertiesProcessor.GetProperties(followOnTransResponse!);
+        }
+
+        stage = Stage.Result;
+        StateHasChanged();
+    }
+
+    private void ResetFlow()
+    {
+        sessionTransactions.DeleteAll();
+        customersScoped.DeleteAll();
+        ctxContext.DeleteCtx();
+        diTransientToken.DeleteTt();
+
+        stage = Stage.CustomerEntry;
+        b2CCustomer = new();
+        sessionTransJson = new();
+        captureContextDto = new();
+        checkEnrollDto = new();
+        followOnTransResponse = new();
+
+        jwt = null;
+        transientToken = null;
+        transientCtxToken = null;
+        fullName = null;
+        error = null;
+        paSetupAccessToken = null;
+        authenticationTransactionId = null;
+        stepUpAuthUrl = null;
+        stepUpJwt = null;
+        stepUpMd = null;
+        resultTitle = string.Empty;
+
+        showTransToken = false;
+        enrollSubmitted = false;
+        showAuthorizeButton = false;
+        decodedTransientToken = null;
+        propertyValues = new();
+        _transactionJson = null;
+
+        ntProvisionError = null;
+        ntProvisionResult = null;
+
+        selectedPaCard = null;
+        selectedStandardCard = null;
+        selectedNetworkTokenTestCard = null;
+        selectedExpMonth = "12";
+        selectedExpYear = "2027";
+
+        ntAutoStarted = false;
+        StateHasChanged();
+    }
+
+    private bool HasError(SessionTransJson? sessionResponse, out List<BasicErrorInfo> foundErrors)
+    {
+        foundErrors = new List<BasicErrorInfo>();
+
+        if (sessionResponse is null || sessionResponse.TransactionStatus == "error")
+        {
+            return true;
+        }
+
+        if (sessionResponse.TransactionJson is not null)
+        {
+            foundErrors = JsonErrorExtractor.ExtractErrorObjects(sessionResponse.TransactionJson.ToString());
+
+            bool containsError = foundErrors.Any(e =>
+                AppErrorConfig.ErrorKeywords.Any(k =>
+                    $"{e.Status} {e.Reason} {e.Message} {e.Action}"
+                        .ToLowerInvariant()
+                        .Contains(k.ToLowerInvariant())
+                )
+            );
+
+            if (containsError)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void Fail(string message, SessionTransJson? response = null)
+    {
+        error = message;
+        _transactionJson = response?.TransactionJson;
+
+        var errorResponse = response ?? new SessionTransJson();
+        errorResponse.error = message;
+        errorResponse.TransactionStatus = "error";
+        sessionTransactions.AddTrans(errorResponse);
+
+        stage = Stage.Failed;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _dotNetRef?.Dispose();
+    }
+}

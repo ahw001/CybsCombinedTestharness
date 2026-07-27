@@ -1,0 +1,272 @@
+@page "/store/cart"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject ICartService CartService
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>Shopping Cart – CyberStore</PageTitle>
+
+<StoreNavBar />
+
+<div class="container py-5">
+    <div class="row">
+
+        <!-- Cart items -->
+        <div class="col-lg-8">
+            <h2 class="fw-bold mb-4">Shopping Cart</h2>
+
+            @if (!_items.Any())
+            {
+                <div class="text-center py-5">
+                    <i class="bi bi-cart3 display-1 text-muted"></i>
+                    <p class="text-muted mt-3">Your cart is empty</p>
+                    <a href="/store/phones" class="btn btn-outline-dark px-4">Continue Shopping</a>
+                </div>
+            }
+            else
+            {
+                @foreach (var item in _items)
+                {
+                    <div class="d-flex align-items-center border-bottom py-3 gap-3">
+                        <img src="@item.ImageUrl" alt="@item.Name"
+                             class="rounded bg-light p-2"
+                             style="width: 100px; height: 100px; object-fit: contain;"
+                             loading="lazy" />
+                        <div class="flex-grow-1">
+                            <h6 class="fw-semibold mb-1">@item.Name</h6>
+                            <small class="text-muted d-block">@item.Variant</small>
+                            <small class="text-muted">@item.Sku</small>
+                        </div>
+                        <div class="text-end">
+                            <p class="fw-bold fs-5 mb-2">$@item.LineTotal.ToString("N0")</p>
+                            <div class="input-group input-group-sm mb-2" style="width: 120px;">
+                                <button class="btn btn-outline-secondary"
+                                        disabled="@(item.Quantity <= 1)"
+                                        @onclick="() => Decrement(item)">−</button>
+                                <input type="number" class="form-control text-center"
+                                       value="@item.Quantity"
+                                       @onchange="e => SetQty(item, e)" />
+                                <button class="btn btn-outline-secondary"
+                                        @onclick="() => Increment(item)">+</button>
+                            </div>
+                            <button class="btn btn-link btn-sm text-danger p-0"
+                                    @onclick="() => RemoveItem(item)"
+                                    aria-label="Remove @item.Name">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+
+        <!-- Order summary -->
+        <div class="col-lg-4">
+            <div class="card border rounded-3 sticky-top" style="top: 80px;">
+                <div class="card-body p-4">
+                    <h5 class="card-title fw-bold mb-4">Order Summary</h5>
+
+                    <div class="mb-3">
+                        <label class="form-label small">Discount code / Promo code</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" placeholder="Code"
+                                   @bind="_promoCode" @bind:event="oninput" />
+                            <button class="btn btn-outline-secondary"
+                                    @onclick="ApplyPromo"
+                                    disabled="@string.IsNullOrWhiteSpace(_promoCode)">Apply</button>
+                        </div>
+                        @if (_promoApplied)
+                        {
+                            <div class="text-success small mt-1">
+                                <i class="bi bi-check-circle"></i>
+                                Promo "@_appliedCode" applied — @DiscountPercent% off
+                            </div>
+                        }
+                    </div>
+
+                    <hr />
+
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span>Subtotal</span><span>$@Subtotal.ToString("N0")</span>
+                    </div>
+                    @if (_promoApplied)
+                    {
+                        <div class="d-flex justify-content-between small mb-1 text-success">
+                            <span>Discount (@DiscountPercent%)</span>
+                            <span>− $@DiscountAmount.ToString("N0")</span>
+                        </div>
+                    }
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span>Estimated Tax</span><span>$@Tax.ToString("N0")</span>
+                    </div>
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span>Shipping &amp; Handling</span><span>$@Shipping.ToString("N0")</span>
+                    </div>
+
+                    <hr />
+
+                    <div class="d-flex justify-content-between fw-bold mb-4">
+                        <span>Total</span><span>$@Total.ToString("N0")</span>
+                    </div>
+
+                    <button class="btn btn-dark w-100"
+                            disabled="@(!_items.Any())"
+                            @onclick="Checkout">
+                        Proceed to Checkout
+                    </button>
+
+                    <a class="btn btn-outline-secondary btn-sm w-100 mt-2" href="/store/checkout-config">
+                        <i class="bi bi-gear"></i> Checkout Settings
+                    </a>
+
+                    <div class="text-center text-muted small mt-2">
+                        <i class="bi bi-lock"></i> Secure checkout
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<StoreFooter />
+
+@code {
+    private string _promoCode = "";
+    private string _appliedCode = "";
+    private bool _promoApplied = false;
+    private string _cardNumber = "";
+
+    private const int DiscountPercent = 10;
+    private const decimal TaxRate = 0.0725m;
+    private const decimal ShippingFlat = 29m;
+
+    // Raw totals computed directly from the cart to avoid a circular dependency with _items
+    private decimal RawSubtotal =>
+        CartService.Cart
+            .GroupBy(p => p.ProductId)
+            .Sum(g => (g.First().UnitPrice ?? 0m) * g.Count());
+
+    private decimal RawDiscountAmount => _promoApplied
+        ? Math.Round(RawSubtotal * DiscountPercent / 100m)
+        : 0m;
+
+    private decimal RawTax => Math.Round((RawSubtotal - RawDiscountAmount) * TaxRate);
+    private decimal RawShipping => CartService.Cart.Any() ? ShippingFlat : 0m;
+    private int TotalQuantity => CartService.Cart.Count;
+
+    private IEnumerable<CartItem> _items
+    {
+        get
+        {
+            int totalQty = TotalQuantity;
+            decimal extraPerUnit = totalQty > 0
+                ? (RawTax + RawShipping) / totalQty
+                : 0m;
+
+            return CartService.Cart
+                .GroupBy(p => p.ProductId)
+                .Select(g => new CartItem
+                {
+                    Id        = g.Key,
+                    Name      = g.First().ProductName,
+                    Sku       = g.First().ProductSku ?? "",
+                    UnitPrice = (g.First().UnitPrice ?? 0m) + extraPerUnit,
+                    Quantity  = g.Count(),
+                    ImageUrl  = g.First().ImageUrl ?? ""
+                });
+        }
+    }
+
+    private decimal Subtotal => RawSubtotal;
+    private decimal DiscountAmount => RawDiscountAmount;
+    private decimal Tax => RawTax;
+    private decimal Shipping => RawShipping;
+    private decimal Total => Subtotal - DiscountAmount + Tax + Shipping;
+
+    protected override void OnInitialized()
+    {
+        CartService.OnChange += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        CartService.OnChange -= StateHasChanged;
+    }
+
+    private void Increment(CartItem item)
+    {
+        var template = CartService.Cart.First(p => p.ProductId == item.Id);
+        CartService.AddProduct(new DBProduct
+        {
+            ProductId   = template.ProductId,
+            ProductName = template.ProductName,
+            UnitPrice   = template.UnitPrice,
+            ProductSku  = template.ProductSku,
+        });
+    }
+
+    private void Decrement(CartItem item)
+    {
+        if (item.Quantity > 1)
+        {
+            var product = CartService.Cart.First(p => p.ProductId == item.Id);
+            CartService.DeleteProduct(product);
+        }
+    }
+
+    private void SetQty(CartItem item, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int qty) && qty >= 1)
+        {
+            qty = Math.Min(qty, 99);
+            int delta = qty - item.Quantity;
+            if (delta > 0)
+            {
+                var template = CartService.Cart.First(p => p.ProductId == item.Id);
+                for (int i = 0; i < delta; i++)
+                    CartService.AddProduct(new DBProduct
+                    {
+                        ProductId   = template.ProductId,
+                        ProductName = template.ProductName,
+                        UnitPrice   = template.UnitPrice,
+                        ProductSku  = template.ProductSku,
+                    });
+            }
+            else if (delta < 0)
+            {
+                for (int i = 0; i < -delta; i++)
+                {
+                    var product = CartService.Cart.First(p => p.ProductId == item.Id);
+                    CartService.DeleteProduct(product);
+                }
+            }
+        }
+    }
+
+    private void RemoveItem(CartItem item)
+    {
+        var toRemove = CartService.Cart.Where(p => p.ProductId == item.Id).ToList();
+        foreach (var p in toRemove)
+            CartService.DeleteProduct(p);
+    }
+
+    private void ApplyPromo()
+    {
+        if (!string.IsNullOrWhiteSpace(_promoCode))
+        {
+            _promoApplied = true;
+            _appliedCode = _promoCode.Trim().ToUpper();
+            _promoCode = "";
+        }
+    }
+
+    private void Checkout()
+    {
+        CartService.SetTotal(Math.Truncate(Total * 100m) / 100m);
+        // Unified Checkout is now the store's primary checkout path (UnifiedCheckoutPlanning.md,
+        // Execution Goal 1) — the legacy direct-REST /checkout page is unchanged and still used
+        // by the non-store checkout flows.
+        Navigation.NavigateTo("/store/checkout");
+    }
+}

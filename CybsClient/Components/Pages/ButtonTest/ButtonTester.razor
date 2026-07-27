@@ -1,0 +1,30 @@
+﻿@page "/button-test"
+@rendermode InteractiveServer
+
+<h3>ButtonTester</h3>
+
+
+<div class="col p-3">
+    <div class="dropdown">
+        <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Follow on Actions
+        </button>
+        <hr class="my-4">
+        <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="capture">Capture</a></li>
+            <li><a class="dropdown-item" href="reversal">Reversal</a></li>
+            <li><a class="dropdown-item" href="checkout">New Checkout</a></li>
+        </ul>
+    </div>
+</div>
+
+
+@code {
+
+    private void ButtonClicked()
+    {
+        // Handle button click event here
+        Console.WriteLine("Button clicked!");
+    }
+
+}

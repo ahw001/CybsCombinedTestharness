@@ -1,0 +1,160 @@
+<div class="row g-3">
+    <div class="col-sm-6">
+        <label for="firstName" class="form-label">First Name: </label>
+
+        @if (Customer is not null)
+        {
+            <SafeInputText TModel="B2cCustomer"
+                           Model="Customer"
+                           Value="@Customer.FirstName"
+                           ValueChanged="@(v => Customer.FirstName = v)"
+                           Id="firstName"
+                           CssClass="form-control"
+                           Placeholder="First Name" />
+        }
+
+        <ValidationMessage For="() => Customer!.FirstName" />
+    </div>
+
+    <div class="col-sm-6">
+        <label for="lastName" class="form-label">Last Name: </label>
+
+        @if (Customer is not null)
+        {
+            <SafeInputText TModel="B2cCustomer"
+                           Model="Customer"
+                           Value="@Customer.LastName"
+                           ValueChanged="@(v => Customer.LastName = v)"
+                           Id="lastName"
+                           CssClass="form-control"
+                           Placeholder="Last Name" />
+        }
+
+        <ValidationMessage For="() => Customer!.LastName" />
+    </div>
+    <div class="col-12">
+        <label for="email" class="form-label">Email: </label>
+
+        @if (Customer is not null)
+        {
+            <SafeInputText TModel="B2cCustomer"
+                           Model="Customer"
+                           Value="@Customer.Email"
+                           ValueChanged="@(v => Customer.Email = v)"
+                           Id="email"
+                           CssClass="form-control"
+                           Placeholder="Email" />
+        }
+        <ValidationMessage For="() => Customer!.Email" />
+    </div>
+
+    <div class="col-12">
+        <label for="address" class="form-label">Address1: </label>
+
+        @if (Customer is not null)
+        {
+            <SafeInputText TModel="B2cCustomer"
+                           Model="Customer"
+                           Value="@Customer.Address1"
+                           ValueChanged="@(v => Customer.Address1 = v)"
+                           Id="email"
+                           CssClass="form-control"
+                           Placeholder="Address1" />
+        }
+
+        <ValidationMessage For="() => Customer!.Address1" />
+    </div>
+
+    <div class="col-12">
+        <label for="address2" class="form-label">Address2: </label>
+
+        @if (Customer is not null)
+        {
+            <SafeInputText TModel="B2cCustomer"
+                           Model="Customer"
+                           Value="@Customer.Address2"
+                           ValueChanged="@(v => Customer.Address2 = v)"
+                           Id="address2"
+                           CssClass="form-control"
+                           Placeholder="Address2" />
+        }
+    </div>
+</div>
+<div class="col-md-9">
+    <label for="city" class="form-label">City: </label>
+
+    @if (Customer is not null)
+    {
+        <SafeInputText TModel="B2cCustomer"
+                       Model="Customer"
+                       Value="@Customer.City"
+                       ValueChanged="@(v => Customer.City = v)"
+                       Id="city"
+                       CssClass="form-control"
+                       Placeholder="city" />
+    }
+</div>
+<div class="col-md-9">
+    <label for="city" class="form-label">City: </label>
+
+    @if (Customer is not null)
+    {
+        <SafeInputText TModel="B2cCustomer"
+                       Model="Customer"
+                       Value="@Customer.AdministrativeArea"
+                       ValueChanged="@(v => Customer.AdministrativeArea = v)"
+                       Id="administrativeArea"
+                       CssClass="form-control"
+                       Placeholder="administrativeArea" />
+    }
+</div>
+<div class="col-md-9">
+    <label for="postalCode" class="form-label">Zip/Postal Code: </label>
+
+    @if (Customer is not null)
+    {
+        <SafeInputText TModel="B2cCustomer"
+                       Model="Customer"
+                       Value="@Customer.PostalCode"
+                       ValueChanged="@(v => Customer.PostalCode = v)"
+                       Id="postalCode"
+                       CssClass="form-control"
+                       Placeholder="postalCode" />
+    }
+</div>
+<div class="col-md-9">
+    <label for="country" class="form-label">Country: </label>
+
+    @if (Customer is not null)
+    {
+        <SafeInputText TModel="B2cCustomer"
+                       Model="Customer"
+                       Value="@Customer.Country"
+                       ValueChanged="@(v => Customer.Country = v)"
+                       Id="country"
+                       CssClass="form-control"
+                       Placeholder="country" />
+    }
+
+    <ValidationMessage For="() => Customer!.Country" />
+</div>
+<div class="col-md-9">
+    <label for="phone" class="form-label">Phone: </label>
+
+    @if (Customer is not null)
+    {
+        <SafeInputText TModel="B2cCustomer"
+                       Model="Customer"
+                       Value="@Customer.Phone"
+                       ValueChanged="@(v => Customer.Phone = v)"
+                       Id="phone"
+                       CssClass="form-control"
+                       Placeholder="Phone" />
+    }
+
+    <ValidationMessage For="() => Customer!.Phone" />
+</div>
+
+@code {
+    [Parameter] public B2cCustomer? Customer { get; set; }
+}

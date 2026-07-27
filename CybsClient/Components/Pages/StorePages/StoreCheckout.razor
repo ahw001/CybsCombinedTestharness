@@ -1,0 +1,570 @@
+@page "/store/checkout"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject ICartService cartService
+@inject NavigationManager Navigation
+@inject ISessionTransactions sessionTransactions
+@inject IUnifiedCheckoutSettingsService UcSettings
+@inject IJSRuntime JSRuntime
+@inject ICardService cardService
+@inject IPayerAuthTestCardService payerAuthTestCardService
+@implements IDisposable
+
+<script src="Components/Pages/StorePages/StoreCheckout.razor.js"></script>
+
+<title>Store Checkout</title>
+
+<div class="py-1 text-center">
+    <h2>Store Checkout</h2>
+</div>
+
+<hr class="my-4" />
+
+<div class="container">
+
+    @if (Phase == CheckoutPhase.CustomerForm)
+    {
+        <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="useRestBackup" @bind="UseRestBackup" />
+            <label class="form-check-label" for="useRestBackup">
+                Use simple REST API (backup — skip Unified Checkout)
+            </label>
+        </div>
+
+        @if (!UseRestBackup)
+        {
+            @if (UcSettings.SelectedConfig is not null)
+            {
+                <div class="alert alert-info">
+                    Unified Checkout config: <strong>@UcSettings.SelectedConfig.Name</strong>
+                    (<a href="/store/checkout-config">change</a>)
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-warning">
+                    No Unified Checkout configuration selected — using a default Card-only configuration.
+                    <a href="/store/checkout-config">Choose or save one</a>.
+                </div>
+            }
+        }
+    }
+
+    <div class="row g-5">
+        @if (Phase == CheckoutPhase.CustomerForm && Show)
+        {
+            <CustomerMasterComponent ButtonText="@(UseRestBackup ? "Checkout" : "Continue to Unified Checkout")"
+                                      FormElements="CurrentFormElements"
+                                      FormCustomer="b2CCustomer"
+                                      ValidSubmit="Submit"></CustomerMasterComponent>
+        }
+        else if (Phase == CheckoutPhase.UnifiedCheckoutMount)
+        {
+            <div class="col-12">
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <label class="form-label">Test Card (select, then copy/paste into the Unified Checkout form below)</label>
+                        <select class="form-select mb-2" @onchange="OnTestCardSelected">
+                            <option value="">-- Select a test card --</option>
+                            <optgroup label="Standard Test Cards">
+                                @for (var i = 0; i < cardService.Cards.Count; i++)
+                                {
+                                    var card = cardService.Cards[i];
+                                    <option value="std:@i">@card.CardBrand @card.AccountNumber</option>
+                                }
+                            </optgroup>
+                            @foreach (var group in GroupedPaCards)
+                            {
+                                <optgroup label="Payer Auth — @group.Key">
+                                    @foreach (var card in group)
+                                    {
+                                        <option value="pa:@card.SamplePayAuthPaymentCardId">@card.OptionLabel</option>
+                                    }
+                                </optgroup>
+                            }
+                        </select>
+                        @if (selectedTestCardNumber is not null)
+                        {
+                            <div class="alert alert-info py-2 small mb-0">
+                                <div>Card Number: <code>@selectedTestCardNumber</code></div>
+                                <div>Exp: <code>@selectedTestCardExpMonth/@selectedTestCardExpYear</code> &nbsp; CVV: <code>@selectedTestCardCvv</code></div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div id="ucPaymentContainer" class="my-4">
+                    <button type="button" class="btn btn-lg btn-block btn-primary" disabled="disabled">
+                        Loading Unified Checkout...
+                    </button>
+                </div>
+
+                @if (ucReady)
+                {
+                    <p class="text-muted">Complete your payment in the form above — this account processes the payment automatically once you confirm.</p>
+                }
+
+                <button class="btn btn-outline-secondary" @onclick="CancelUnifiedCheckout">
+                    Cancel
+                </button>
+            </div>
+        }
+        else if (Phase == CheckoutPhase.Completed)
+        {
+            <div class="col-12">
+                <div class="alert alert-success">
+                    <h4 class="alert-heading">Unified Checkout complete</h4>
+                    <p>CyberSource processed this payment automatically as part of the embedded checkout flow.</p>
+                </div>
+                <pre class="bg-light p-3 border rounded">@completionResultJson</pre>
+                <a class="btn btn-dark" href="/store">Continue Shopping</a>
+            </div>
+        }
+
+        <FormSection>
+            @if (error is not null)
+            {
+                <div class="col-6">
+                    <strong class="alert-danger">@error</strong>
+                </div>
+            }
+        </FormSection>
+    </div>
+
+    <footer class="my-5 pt-5 text-body-secondary text-center text-small">
+        <p class="mb-1">&copy; 2017–2024 Company Name</p>
+    </footer>
+</div>
+
+@code {
+    private enum CheckoutPhase { CustomerForm, UnifiedCheckoutMount, Completed }
+
+    private static readonly List<string> UnifiedFormElements =
+        new() { "ShowMainForm", "ShowBilling", "ShowDefaults", "ShowCart" };
+
+    private static readonly List<string> RestFormElements =
+        new() { "ShowMainForm", "ShowBilling", "ShowAccountDetails", "ShowDefaults", "ShowAuthCapture", "ShowCart" };
+
+    private List<string> CurrentFormElements => UseRestBackup ? RestFormElements : UnifiedFormElements;
+
+    private CheckoutPhase Phase = CheckoutPhase.CustomerForm;
+    private bool UseRestBackup { get; set; }
+    private bool Show = true;
+    private bool ucReady = false;
+    private bool _pendingMount = false;
+
+    private string? error;
+    private string? completionResultJson;
+
+    private B2cCustomer b2CCustomer = new();
+    private CaptureContextDto captureContextDto = new();
+
+    private ISessionTransactions _sessionTransactions = new SessionTransactions();
+    private SessionTransJson sessionTransJson = new();
+
+    private DotNetObjectReference<StoreCheckout>? _dotNetRef;
+
+    // ── Test-card dropdown (copy/paste into the embedded Unified Checkout widget) ────────
+    private string? selectedTestCardNumber;
+    private string? selectedTestCardExpMonth;
+    private string? selectedTestCardExpYear;
+    private string? selectedTestCardCvv;
+
+    private IEnumerable<IGrouping<string, PayerAuthTestCardDto>> GroupedPaCards =>
+        payerAuthTestCardService.Cards
+            .OrderBy(c => c.TestCaseId, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(c => c.CardBrand)
+            .GroupBy(c => c.TestCaseGroupLabel);
+
+    private void OnTestCardSelected(ChangeEventArgs e)
+    {
+        selectedTestCardNumber = selectedTestCardExpMonth = selectedTestCardExpYear = selectedTestCardCvv = null;
+
+        var value = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        var parts = value.Split(':', 2);
+        if (parts.Length != 2) return;
+
+        if (parts[0] == "std" && int.TryParse(parts[1], out var index) && index >= 0 && index < cardService.Cards.Count)
+        {
+            var card = cardService.Cards[index];
+            selectedTestCardNumber = card.AccountNumber;
+            selectedTestCardExpMonth = card.ExpMonth;
+            selectedTestCardExpYear = card.ExpYear;
+            selectedTestCardCvv = card.Cvv;
+        }
+        else if (parts[0] == "pa" && int.TryParse(parts[1], out var id))
+        {
+            var card = payerAuthTestCardService.Cards.FirstOrDefault(c => c.SamplePayAuthPaymentCardId == id);
+            if (card is not null)
+            {
+                selectedTestCardNumber = card.AccountNumber;
+                selectedTestCardExpMonth = card.ExpMonth;
+                selectedTestCardExpYear = card.ExpYear;
+                selectedTestCardCvv = card.Cvv;
+            }
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        _dotNetRef = DotNetObjectReference.Create(this);
+
+        if (cartService.Cart is not null && cartService.Cart.Count > 0)
+        {
+            b2CCustomer.Cart = cartService.Cart.ToList();
+            b2CCustomer.TotalAmount = cartService.Total;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingMount && Phase == CheckoutPhase.UnifiedCheckoutMount)
+        {
+            _pendingMount = false;
+
+            var clientLibraryUrl = ExtractClientLibrary(captureContextDto.Ctx);
+
+            await JSRuntime.InvokeVoidAsync(
+                "storeCheckoutUC.loadScriptAndMount",
+                _dotNetRef, captureContextDto.Ctx, clientLibraryUrl, "ucPaymentContainer");
+        }
+    }
+
+    // Live E2E verification (2026-07-21) confirmed clientLibrary is NOT a top-level JWT claim —
+    // System.IdentityModel.Tokens.Jwt's flat Claims enumeration (JWTItems.DecodeJWT) never finds
+    // it. The real capture-context JWT payload shape is: { "ctx": [ { "data": { ...,
+    // "clientLibrary": "https://.../SecureAcceptance.js" }, "type": "..." } ], "iss": ..., ... }.
+    // Decode the payload segment directly and walk to ctx[0].data.clientLibrary instead.
+    // Base64url-decodes a JWT's payload segment (index 1) to raw JSON text. Shared by
+    // ExtractClientLibrary (capture-context JWT) and OnUnifiedCheckoutComplete (mount()
+    // completion JWT) below.
+    private static string? DecodeJwtPayload(string? jwt)
+    {
+        if (string.IsNullOrWhiteSpace(jwt)) return null;
+        var parts = jwt.Split('.');
+        if (parts.Length < 2) return null;
+
+        try
+        {
+            string padded = parts[1].Replace('-', '+').Replace('_', '/');
+            switch (padded.Length % 4)
+            {
+                case 2: padded += "=="; break;
+                case 3: padded += "="; break;
+            }
+
+            return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(padded));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractClientLibrary(string? jwt)
+    {
+        var json = DecodeJwtPayload(jwt);
+        if (json is null) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("ctx", out var ctxArray) &&
+                ctxArray.ValueKind == JsonValueKind.Array &&
+                ctxArray.GetArrayLength() > 0 &&
+                ctxArray[0].TryGetProperty("data", out var data) &&
+                data.TryGetProperty("clientLibrary", out var nestedLib))
+            {
+                return nestedLib.GetString();
+            }
+
+            // Fallback in case a future/older response shape puts it top-level.
+            if (root.TryGetProperty("clientLibrary", out var topLib))
+            {
+                return topLib.GetString();
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[StoreCheckout] Failed to extract clientLibrary from capture context JWT: {ex.Message}");
+            return null;
+        }
+    }
+
+    // ── Step 1: collect customer/billing/shipping/cart, then either go to Unified Checkout
+    //            or the simple REST backup ────────────────────────────────────────────────
+
+    private async Task Submit(B2cCustomer submittedCustomer)
+    {
+        if (UseRestBackup)
+        {
+            await SubmitRestBackup(submittedCustomer);
+        }
+        else
+        {
+            await SubmitUnifiedCheckout(submittedCustomer);
+        }
+    }
+
+    private async Task SubmitUnifiedCheckout(B2cCustomer submittedCustomer)
+    {
+        try
+        {
+            B2cCustomer requestCustomer = new();
+
+            requestCustomer.Address1 = submittedCustomer.Address1;
+            requestCustomer.Address2 = submittedCustomer.Address2;
+            requestCustomer.Address3 = submittedCustomer.Address3;
+            requestCustomer.AdministrativeArea = submittedCustomer.AdministrativeArea ?? "FU";
+            requestCustomer.Country = submittedCustomer.Country;
+            requestCustomer.BuildingNumber = submittedCustomer.BuildingNumber ?? "0";
+            requestCustomer.District = submittedCustomer.District;
+            requestCustomer.City = submittedCustomer.City;
+            requestCustomer.PostalCode = submittedCustomer.PostalCode;
+            requestCustomer.Email = submittedCustomer.Email;
+            requestCustomer.FirstName = submittedCustomer.FirstName;
+            requestCustomer.LastName = submittedCustomer.LastName;
+            requestCustomer.MiddleName = submittedCustomer.MiddleName;
+            requestCustomer.Title = submittedCustomer.Title;
+            requestCustomer.Phone = submittedCustomer.Phone;
+            requestCustomer.PhoneType = submittedCustomer.PhoneType;
+
+            // Goal 1 uses full billing+shipping — shipping mirrors billing, same as the legacy
+            // /unifiedcheckout page, until Execution Goal 3 makes shipping independently optional.
+            requestCustomer.ShippingAddress1 = submittedCustomer.Address1;
+            requestCustomer.ShippingAddress2 = submittedCustomer.Address2;
+            requestCustomer.ShippingAddress3 = submittedCustomer.Address3;
+            requestCustomer.ShippingAdministrativeArea = submittedCustomer.AdministrativeArea ?? "FU";
+            requestCustomer.ShippingBuildingNumber = submittedCustomer.BuildingNumber ?? "0";
+            requestCustomer.ShippingCountry = submittedCustomer.Country;
+            requestCustomer.ShippingCity = submittedCustomer.City;
+            requestCustomer.ShippingPostalCode = submittedCustomer.PostalCode;
+            requestCustomer.ShippingFirstName = submittedCustomer.FirstName;
+            requestCustomer.ShippingLastName = submittedCustomer.LastName;
+            requestCustomer.ShippingPhone = submittedCustomer.Phone;
+            requestCustomer.ShippingPhoneType = submittedCustomer.PhoneType;
+
+            requestCustomer.TotalAmount = submittedCustomer.TotalAmount;
+            requestCustomer.Cart = submittedCustomer.Cart;
+            requestCustomer.TargetOrigin = new Uri(Navigation.BaseUri).GetLeftPart(UriPartial.Authority);
+            requestCustomer.UnifiedCheckoutConfigurationId = UcSettings.SelectedConfig?.UnifiedCheckoutConfigurationId;
+
+            // Real Unified Checkout v1 session (uc/v1/sessions) — deliberately NOT
+            // CcTransactionTypes.UNIFIED_CHECKOUT, which is the legacy v0 /unifiedcheckout
+            // page's transaction type and stays wired to /api/tokens/capturecontext unchanged.
+            sessionTransJson.OriginalTransactionType = CcTransactionTypes.UNIFIED_CHECKOUT_V1;
+            sessionTransJson.CurrentTransactionType = CcTransactionTypes.UNIFIED_CHECKOUT_V1;
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(requestCustomer, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, CcTransactionTypes.UNIFIED_CHECKOUT_V1);
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            captureContextDto = JsonSerializer.Deserialize<CaptureContextDto>(sessionResponse.TransactionJson)
+                ?? new CaptureContextDto();
+
+            if (string.IsNullOrWhiteSpace(captureContextDto.Ctx))
+            {
+                HandleErrorAndRedirect(sessionResponse, "Capture context did not include a JWT.");
+                return;
+            }
+
+            b2CCustomer = requestCustomer;
+            sessionTransactions.AddTrans(sessionResponse);
+
+            Phase = CheckoutPhase.UnifiedCheckoutMount;
+            _pendingMount = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    // ── Step 2: Unified Checkout JS mounted — wait for the customer to complete payment
+    //            entry, then finalize and post the transient token ───────────────────────
+
+    [JSInvokable]
+    public void OnUnifiedCheckoutReady()
+    {
+        ucReady = true;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnUnifiedCheckoutError(string message)
+    {
+        error = "Unified Checkout error: " + message;
+        StateHasChanged();
+    }
+
+    private void CancelUnifiedCheckout()
+    {
+        Phase = CheckoutPhase.CustomerForm;
+        ucReady = false;
+        StateHasChanged();
+    }
+
+    // This account has a merchant-level completeMandate default (confirmed live 2026-07-21:
+    // the capture-context JWT already carries a completeMandate object we never requested),
+    // which puts the v1 SDK in "autoProcessing" mode — CyberSource processes the payment itself
+    // client-side (a real POST to testflex.cybersource.com/flex/v2/complete, confirmed via the
+    // browser's network log) and checkout.mount()'s promise only resolves once that finishes.
+    // There is no separate "complete" event or manual complete() call for this mode — calling
+    // checkout.complete() throws ("cannot be called when autoProcessing is enabled").
+    [JSInvokable]
+    public void OnUnifiedCheckoutComplete(string resultJson)
+    {
+        var prettyOptions = new JsonSerializerOptions { WriteIndented = true };
+        try
+        {
+            using var doc = JsonDocument.Parse(resultJson);
+            var root = doc.RootElement;
+
+            // checkout.mount()'s resolved value is itself a signed JWT, not a JSON object —
+            // decode its payload so the completion screen shows the real transaction outcome
+            // (status/approvalCode/etc.) instead of the raw encoded token.
+            if (root.ValueKind == JsonValueKind.String)
+            {
+                var payloadJson = DecodeJwtPayload(root.GetString());
+                using var payloadDoc = payloadJson is not null ? JsonDocument.Parse(payloadJson) : null;
+                completionResultJson = payloadDoc is not null
+                    ? JsonSerializer.Serialize(payloadDoc.RootElement, prettyOptions)
+                    : root.GetString();
+            }
+            else
+            {
+                completionResultJson = JsonSerializer.Serialize(root, prettyOptions);
+            }
+        }
+        catch (JsonException)
+        {
+            completionResultJson = resultJson;
+        }
+
+        Console.WriteLine($"[StoreCheckout] Unified Checkout auto-processed result:\n{completionResultJson}");
+
+        cartService.DeleteAll();
+        Phase = CheckoutPhase.Completed;
+        StateHasChanged();
+    }
+
+    // ── Simple REST API backup path — reuses the existing SALE/AUTH flow, same as the
+    //    legacy /checkout page's Submit() ──────────────────────────────────────────────
+
+    private async Task SubmitRestBackup(B2cCustomer submittedCustomer)
+    {
+        try
+        {
+            if (submittedCustomer.MarkedForCapture)
+            {
+                sessionTransJson.OriginalTransactionType = CcTransactionTypes.SALE;
+                sessionTransJson.CurrentTransactionType = CcTransactionTypes.SALE;
+            }
+            else
+            {
+                sessionTransJson.OriginalTransactionType = CcTransactionTypes.AUTH;
+                sessionTransJson.CurrentTransactionType = CcTransactionTypes.AUTH;
+            }
+
+            submittedCustomer.ActionTokenTypes ??= new string[] { "paymentInstrument" };
+
+            if (submittedCustomer.TotalAmount == 0.00m && submittedCustomer.Cart is not null)
+            {
+                foreach (var item in submittedCustomer.Cart)
+                {
+                    submittedCustomer.TotalAmount += item.UnitPrice;
+                }
+            }
+
+            var options = new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(submittedCustomer, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, (CcTransactionTypes)sessionTransJson.CurrentTransactionType!);
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            var basicErrorInfos = JsonErrorExtractor.ExtractErrorObjects(sessionResponse.TransactionJson?.ToString() ?? string.Empty);
+            bool containsError = basicErrorInfos.Any(e =>
+                AppErrorConfig.ErrorKeywords.Any(k =>
+                    $"{e.Status} {e.Reason} {e.Message} {e.Action}".ToLowerInvariant().Contains(k.ToLowerInvariant())));
+
+            if (containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse!);
+            cartService.DeleteAll();
+            Navigation.NavigateTo("/processauth");
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    private void HandleErrorAndRedirect(SessionTransJson? response, string fallbackErrorMessage = "Unknown error")
+    {
+        Phase = CheckoutPhase.CustomerForm;
+        Show = false;
+        StateHasChanged();
+
+        var errorMessage = response?.error ?? fallbackErrorMessage;
+        var errorJsonState = response?.JsonTransactionStateValues ?? TransactionStateValues.Error;
+
+        var errorResponse = response ?? new SessionTransJson
+        {
+            JsonTransactionStateValues = errorJsonState,
+            error = errorMessage,
+            TransactionStatus = "error"
+        };
+
+        sessionTransactions.AddTrans(errorResponse);
+        Navigation.NavigateTo("/errorhandler");
+    }
+
+    public void Dispose()
+    {
+        _dotNetRef?.Dispose();
+    }
+}

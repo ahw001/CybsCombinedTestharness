@@ -1,0 +1,100 @@
+<InputRadioGroup @bind-Value="@Customer!.InvoiceType">
+    <h4 class="mb-3">Invoice Type</h4>
+    @foreach (var type in InvoiceType)
+    {
+        <div class="form-check">
+            <InputRadio Value="@type" />
+            @type
+        </div>
+    }
+</InputRadioGroup>
+
+<hr class="my-4">
+
+<div class="row g-3">
+    <div class="col-sm-6">
+        <label for="companyName" class="form-label">Company Name</label>
+        <InputText @bind-Value="Customer.CompanyName" class="form-control" id="companyName" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="invoiceNumber" class="form-label">Invoice Number</label>
+        <InputText @bind-Value="Customer.InvoiceInformation!.InvoiceNumber" class="form-control" id="invoiceNumber" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="description" class="form-label">Description</label>
+        <InputText @bind-Value="Customer.InvoiceInformation.Description" class="form-control" id="description" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="dueDate" class="form-label">Due Date</label>
+        <InputText @bind-Value="Customer.InvoiceInformation.DueDate" class="form-control" id="dueDate" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="deliveryMode" class="form-label">Delivery Mode</label>
+        <InputText @bind-Value="Customer.InvoiceInformation.DeliveryMode" class="form-control" id="deliveryMode" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="allowPartialPayments" class="form-label">Allow Partial Payments</label>
+        <InputText @bind-Value="Customer.InvoiceInformation.AllowPartialPayments" class="form-control" id="allowPartialPayments" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="discountAmount" class="form-label">Discount Amount</label>
+        <InputText @bind-Value="Customer.AmountDetails!.DiscountAmount" class="form-control" id="discountAmount" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="discountPercent" class="form-label">Discount Percent</label>
+        <InputText @bind-Value="Customer.AmountDetails.DiscountPercent" class="form-control" id="discountPercent" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="subAmount" class="form-label">Sub Amount</label>
+        <InputText @bind-Value="Customer.AmountDetails.SubAmount" class="form-control" id="subAmount" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="minimumPartialAmount" class="form-label">Minimum Partial Amount</label>
+        <InputText @bind-Value="Customer.AmountDetails.MinimumPartialAmount" class="form-control" id="minimumPartialAmount" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="taxDetailsType" class="form-label">Tax Details Type</label>
+        <InputText @bind-Value="Customer.TaxDetailsType" class="form-control" id="taxDetailsType" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="taxDetailsAmount" class="form-label">Tax Details Amount</label>
+        <InputText @bind-Value="Customer.TaxDetailsAmount" class="form-control" id="taxDetailsAmount" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="taxDetailsRate" class="form-label">Tax Details Rate</label>
+        <InputText @bind-Value="Customer.TaxDetailsRate" class="form-control" id="taxDetailsRate" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="taxDetailsRate" class="form-label">Tax Details Rate</label>
+        <InputText @bind-Value="Customer.TaxDetailsRate" class="form-control" id="taxDetailsRate" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="freightTaxable" class="form-label">Taxable Freight</label>
+        <InputText @bind-Value="Customer.Freight!.Taxable" class="form-control" id="freightTaxable" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="freightTaxRate" class="form-label">Freight Tax Rate</label>
+        <InputText @bind-Value="Customer.Freight.TaxRate" class="form-control" id="freightTaxRate" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="lineItemsProductSku" class="form-label">Product SKU</label>
+        <InputText @bind-Value="Customer.LineItem!.ProductSku" class="form-control" id="lineItemsProductSku" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="lineItemsDiscountAmount" class="form-label">Discount Amount for Line Items</label>
+        <InputNumber @bind-Value="Customer.LineItem.DiscountAmount" class="form-control" id="lineItemsDiscountAmount" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="lineItemsDiscountRate" class="form-label">Line Item Discount Rate</label>
+        <InputNumber @bind-Value="Customer.LineItem.DiscountRate" class="form-control" id="lineItemsTaxRate" placeholder="" />
+    </div>
+    <div class="col-sm-6">
+        <label for="lineItemsTaxAmount" class="form-label">Line Items Tax Amount</label>
+        <InputNumber @bind-Value="Customer.LineItem.TaxAmount" class="form-control" id="lineItemsTaxAmount" placeholder="" />
+    </div>
+</div>
+
+@code {
+    [Parameter] public B2cCustomer? Customer { get; set; }
+    [Parameter] public string[] InvoiceType { get; set; } = Array.Empty<string>();
+}

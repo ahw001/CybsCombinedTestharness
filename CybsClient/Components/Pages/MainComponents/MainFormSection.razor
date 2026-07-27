@@ -1,0 +1,106 @@
+<div>
+    <div class="row g-5">
+        @if (SafeFormElements.Contains("ShowCart") && !OverrideTotal)
+        {
+            <CartSection @ref="_cartSection"
+                         CartService="CartService"
+                         CartServiceChanged="CartServiceChanged"
+                         FormAmountChanged="FormAmountChanged"
+                         CartErrorChanged="CartErrorChanged" />
+        }
+        <br />
+
+        <br />
+        <h4 class="mb-1">Billing address</h4>
+
+        <div class="col-md-7 col-lg-8">
+            <FormSection Title="Billing Details" HelpText="">
+                <EditForm Model="Customer" OnValidSubmit="@(_ => HandleValidSubmit.InvokeAsync())">
+                    @if (SafeFormElements.Contains("ShowPreAuth") || SafeFormElements.Contains("ShowOnReaderTip"))
+                    {
+                        <PreAuthOrTipSection Customer="Customer" PreAuthOrOnDevice="PreAuthOrOnDevice" />
+                    }
+
+                    @if (SafeFormElements.Contains("ShowBilling"))
+                    {
+                        <BillingSection Customer="Customer" />
+                    }
+                    @if (SafeFormElements.Contains("ShowAuthCapture"))
+                    {
+                        <AuthCaptureSection Customer="Customer" />
+                    }
+
+                    @if (SafeFormElements.Contains("ShowAccountDetails"))
+                    {
+                        <AccountDetailsSection Customer="Customer" PaymentMethods="PaymentMethods" />
+                    }
+                    <hr class="my-4">
+
+                    @if (SafeFormElements.Contains("ShowInvoice"))
+                    {
+                        <InvoiceSection Customer="Customer" InvoiceType="InvoiceType" />
+                    }
+
+                    <hr class="my-4">
+
+                    <button class="w-100 btn btn-dark btn-lg" type="submit">@ButtonText</button>
+
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+                </EditForm>
+            </FormSection>
+        </div>
+    </div>
+    @if (Error is not null)
+    {
+        <div class="col-6">
+            <strong class="alert-danger">@Error</strong>
+        </div>
+        <div class="dropdown">
+            <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                Follow on Actions
+            </button>
+            <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="tokencreate">New Token Create</a></li>
+                <li><a class="dropdown-item" href="checkout">New Checkout</a></li>
+            </ul>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public List<string> SafeFormElements { get; set; } = new();
+
+    [Parameter] public DBRandomCart? CartService { get; set; }
+    [Parameter] public EventCallback<DBRandomCart?> CartServiceChanged { get; set; }
+    [Parameter] public EventCallback<decimal?> FormAmountChanged { get; set; }
+    [Parameter] public EventCallback<string?> CartErrorChanged { get; set; }
+    [Parameter] public bool OverrideTotal { get; set; }
+    [Parameter] public B2cCustomer? Customer { get; set; }
+    [Parameter] public string? ButtonText { get; set; }
+    [Parameter] public string? Error { get; set; }
+
+    [Parameter] public string[] PreAuthOrOnDevice { get; set; } = Array.Empty<string>();
+    [Parameter] public string[] PaymentMethods { get; set; } = Array.Empty<string>();
+    [Parameter] public string[] InvoiceType { get; set; } = Array.Empty<string>();
+
+    [Parameter] public EventCallback HandleValidSubmit { get; set; }
+
+    private CartSection? _cartSection;
+
+    public async Task PopulateDefaultCartAsync()
+    {
+        if (_cartSection is not null)
+        {
+            await _cartSection.PopulateDefaultCartAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && SafeFormElements.Contains("ShowCart") && CartService is null)
+        {
+            await PopulateDefaultCartAsync();
+        }
+    }
+}   

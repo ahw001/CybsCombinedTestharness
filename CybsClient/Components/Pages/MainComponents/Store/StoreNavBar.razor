@@ -1,0 +1,47 @@
+@using Microsoft.AspNetCore.Components.Routing
+@inject NavigationManager Nav
+
+<nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom">
+    <div class="container-fluid px-4" style="max-width: 1440px; margin: 0 auto;">
+        <a class="navbar-brand fw-semibold" href="/store">cyber</a>
+
+        <div class="d-flex align-items-center gap-2 ms-auto order-lg-1">
+            <button class="btn btn-link text-dark p-1" aria-label="Account">
+                <i class="bi bi-person fs-5"></i>
+            </button>
+            <button class="btn btn-link text-dark p-1" aria-label="Wishlist">
+                <i class="bi bi-heart fs-5"></i>
+            </button>
+        </div>
+
+        <button class="navbar-toggler border-0 ms-2" type="button"
+                data-bs-toggle="collapse" data-bs-target="#storeNavCollapse"
+                aria-controls="storeNavCollapse" aria-expanded="false"
+                aria-label="Toggle store navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse order-lg-0" id="storeNavCollapse">
+            <div class="d-flex my-2 my-lg-0 me-lg-3 flex-grow-1" style="max-width: 360px;">
+                <div class="input-group">
+                    <span class="input-group-text bg-light border-0">
+                        <i class="bi bi-search"></i>
+                    </span>
+                    <input type="text" class="form-control bg-light border-0"
+                           placeholder="Search" @bind="_searchText" @bind:event="oninput" />
+                </div>
+            </div>
+            <div class="navbar-nav flex-row flex-wrap gap-3">
+                <NavLink class="nav-link" href="/store" Match="NavLinkMatch.All">Home</NavLink>
+                <NavLink class="nav-link" href="/store/productpage">Products</NavLink>
+                <NavLink class="nav-link" href="/store/about">About</NavLink>
+                <NavLink class="nav-link" href="/store/contact">Contact Us</NavLink>
+                <NavLink class="nav-link" href="/store/blog">Blog</NavLink>
+            </div>
+        </div>
+    </div>
+</nav>
+
+@code {
+    private string _searchText = "";
+}

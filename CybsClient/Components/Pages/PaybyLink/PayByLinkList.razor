@@ -1,0 +1,138 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/paybylink/list"
+
+@inject IJSRuntime JS
+@inject ISessionTransactions sessionTransactions
+@inject NavigationManager Navigation
+
+@using CybsClient.Services.DTOs
+@using CybsClient.Services.Utilities
+@using CybsClient.Services.DIServices
+@using CybsClient.Model.Cybersource.BaseData
+
+@* NOTE (combined harness): the @code block lives in PayByLinkList.razor.cs. The Razor
+   source generator in SDK 10.0.101 (the only SDK available on Replit) mis-places an
+   @code block that follows an if/else chain plus trailing static markup, emitting it
+   inside BuildRenderTree() and producing ~125 cascading CS errors. The code-behind
+   partial class bypasses the buggy generator path entirely and is also correct under
+   SDK 10.0.300. Do not move the code back inline. *@
+
+<title>Pay by Link — All Links</title>
+
+<div class="py-1 text-center">
+    <h2>Pay by Link Records</h2>
+</div>
+
+<hr class="my-4">
+
+<div class="mb-3">
+    <a href="/paybylink/create" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-1"></i> Create New Link
+    </a>
+    <button class="btn btn-outline-secondary ms-2" @onclick="LoadRecords">
+        <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+    </button>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-muted">Loading...</div>
+}
+else if (records is null || records.Count == 0)
+{
+    <div class="alert alert-info">No Pay by Link records found. <a href="/paybylink/create">Create one now.</a></div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>Age</th>
+                    <th>Customer</th>
+                    <th>Amount</th>
+                    <th>Payment Link</th>
+                    <th>CyberSource Status</th>
+                    <th>Created (UTC)</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var record in records)
+                {
+                    <tr>
+                        <td>
+                            <span class="badge @GetAgeBadgeClass(record)">
+                                @GetAgeLabel(record)
+                            </span>
+                        </td>
+                        <td>
+                            <div>@record.CustomerName</div>
+                            @if (!string.IsNullOrWhiteSpace(record.Email))
+                            {
+                                <small class="text-muted">@record.Email</small>
+                            }
+                        </td>
+                        <td>@record.TotalAmount?.ToString("0.00") @record.Currency</td>
+                        <td>
+                            @if (!string.IsNullOrWhiteSpace(record.PaymentLink))
+                            {
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control form-control-sm"
+                                           readonly value="@TruncateLink(record.PaymentLink)" title="@record.PaymentLink" />
+                                    <button class="btn btn-outline-secondary btn-sm"
+                                            @onclick="() => CopyLink(record.PayByLinkTransactionId, record.PaymentLink)"
+                                            title="Copy full link">
+                                        <i class="bi bi-clipboard"></i>
+                                    </button>
+                                </div>
+                                @if (copiedId == record.PayByLinkTransactionId)
+                                {
+                                    <small class="text-success">Copied!</small>
+                                }
+                            }
+                            else
+                            {
+                                <span class="text-muted">—</span>
+                            }
+                        </td>
+                        <td>
+                            <span class="badge @GetStatusBadgeClass(record.Status)">
+                                @(record.Status ?? "—")
+                            </span>
+                        </td>
+                        <td>
+                            <small>@record.CreatedAt.ToString("yyyy-MM-dd HH:mm")</small>
+                        </td>
+                        <td>
+                            @if (record.Status?.Equals("PAID", StringComparison.OrdinalIgnoreCase) != true)
+                            {
+                                <button class="btn btn-sm btn-outline-primary"
+                                        @onclick="() => CheckStatus(record.PayByLinkTransactionId)"
+                                        disabled="@checkingId.HasValue">
+                                    @if (checkingId == record.PayByLinkTransactionId)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                    }
+                                    Check Status
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Paid</span>
+                            }
+                            @if (rowError.TryGetValue(record.PayByLinkTransactionId, out var err))
+                            {
+                                <div><small class="text-danger">@err</small></div>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<footer class="my-5 pt-5 text-body-secondary text-center text-small">
+    <p class="mb-1">&copy; 2017–2025 Company Name</p>
+</footer>

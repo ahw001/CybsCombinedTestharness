@@ -1,0 +1,211 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/portfolioboarding"
+
+@using CybsClient.Model.Cybersource.Boarding
+@using CybsClient.Services.Utilities
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/boarding/dashboard">Boarding Dashboard</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Portfolio Boarding</li>
+    </ol>
+</nav>
+<h2>Portfolio Boarding</h2>
+<p class="text-muted">
+    A Portfolio holds the CyberSource boarding package/template IDs (and, optionally, the signer this
+    portfolio expects) that Organizations can be linked to on the Organization Boarding page.
+</p>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible">
+        @_statusMessage
+        <button type="button" class="btn-close" @onclick="() => _statusMessage = string.Empty"></button>
+    </div>
+}
+
+@if (_savedPortfolios.Count > 0)
+{
+    <div class="card mb-4">
+        <div class="card-header"><b>Saved Portfolios</b></div>
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Portfolio Name</th>
+                        <th>Expected Signature Merchant ID</th>
+                        <th>Boarding Package ID</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var portfolio in _savedPortfolios)
+                    {
+                        <tr class="@(_model.BoardingPortfolioId == portfolio.BoardingPortfolioId ? "table-primary" : "")">
+                            <td>@portfolio.BoardingPortfolioId</td>
+                            <td>@portfolio.PortfolioName</td>
+                            <td>@portfolio.ExpectedSignatureMerchantId</td>
+                            <td>@portfolio.BoardingPackageId</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => LoadForEdit(portfolio)">Edit</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(portfolio.BoardingPortfolioId)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header"><b>Portfolio Information</b></div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Portfolio Name</label>
+                    <input class="form-control" @bind="_model.PortfolioName" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-control" rows="2" @bind="_model.Description"></textarea>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Expected Signature Merchant ID</label>
+                    <input class="form-control" @bind="_model.ExpectedSignatureMerchantId" />
+                    <div class="form-text">
+                        Optional. Purely a runtime check — if set, boarding submissions for Organizations
+                        linked to this Portfolio will be blocked with an error unless the server's currently
+                        active signing credential matches this value. Not a structural link to any .p12 file.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header"><b>Boarding Defaults</b></div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Boarding Package ID</label>
+                    <input class="form-control" @bind="_model.BoardingPackageId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Card Processing Template ID</label>
+                    <input class="form-control" @bind="_model.CardProcessingTemplateId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Virtual Terminal Template ID</label>
+                    <input class="form-control" @bind="_model.VirtualTerminalTemplateId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Token Management Template ID</label>
+                    <input class="form-control" @bind="_model.TokenManagementTemplateId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Payer Authentication Template ID</label>
+                    <input class="form-control" @bind="_model.PayerAuthenticationTemplateId" />
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex gap-2 mb-4">
+    <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
+        @(_saving ? "Saving..." : (_model.BoardingPortfolioId == 0 ? "Save Portfolio" : "Update Portfolio"))
+    </button>
+    <button class="btn btn-outline-secondary" @onclick="ResetForm">Reset</button>
+    <a class="btn btn-outline-primary" href="/orgboarding">Go to Organization Boarding</a>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "id")]
+    public int? Id { get; set; }
+
+    private BoardingPortfolioDto _model = new();
+    private List<BoardingPortfolioDto> _savedPortfolios = new();
+    private string _statusMessage = string.Empty;
+    private bool _isError = false;
+    private bool _saving = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPortfoliosAsync();
+
+        if (Id.HasValue && Id.Value > 0)
+        {
+            var existing = _savedPortfolios.FirstOrDefault(p => p.BoardingPortfolioId == Id.Value);
+            if (existing is not null)
+                LoadForEdit(existing);
+        }
+    }
+
+    private async Task LoadPortfoliosAsync()
+    {
+        var loaded = await CallMinAPIs.GetBoardingPortfoliosAsync();
+        _savedPortfolios = loaded.Data ?? new();
+        if (loaded.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Failed to load portfolios: {loaded.Error.Message}";
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        var result = await CallMinAPIs.SaveBoardingPortfolioAsync(_model);
+        _saving = false;
+
+        if (result.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Error: {result.Error.Message}";
+        }
+        else
+        {
+            _isError = false;
+            _statusMessage = _model.BoardingPortfolioId == 0
+                ? $"Portfolio '{result.Data?.PortfolioName}' saved (ID={result.Data?.BoardingPortfolioId})."
+                : $"Portfolio '{result.Data?.PortfolioName}' updated.";
+            ResetForm();
+            await LoadPortfoliosAsync();
+        }
+    }
+
+    private async Task DeleteAsync(int id)
+    {
+        var result = await CallMinAPIs.DeleteBoardingPortfolioAsync(id);
+        _isError = !result.IsSuccess;
+        _statusMessage = result.Error is not null
+            ? $"Failed to delete portfolio {id}: {result.Error.Message}"
+            : $"Portfolio {id} deleted.";
+        await LoadPortfoliosAsync();
+    }
+
+    private void LoadForEdit(BoardingPortfolioDto portfolio)
+    {
+        _model = new BoardingPortfolioDto
+        {
+            BoardingPortfolioId           = portfolio.BoardingPortfolioId,
+            PortfolioName                 = portfolio.PortfolioName,
+            Description                   = portfolio.Description,
+            ExpectedSignatureMerchantId   = portfolio.ExpectedSignatureMerchantId,
+            BoardingPackageId             = portfolio.BoardingPackageId,
+            CardProcessingTemplateId      = portfolio.CardProcessingTemplateId,
+            VirtualTerminalTemplateId     = portfolio.VirtualTerminalTemplateId,
+            TokenManagementTemplateId     = portfolio.TokenManagementTemplateId,
+            PayerAuthenticationTemplateId = portfolio.PayerAuthenticationTemplateId
+        };
+        _statusMessage = string.Empty;
+    }
+
+    private void ResetForm()
+    {
+        _model = new BoardingPortfolioDto();
+    }
+}

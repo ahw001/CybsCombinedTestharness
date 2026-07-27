@@ -1,0 +1,16 @@
+using CybsClient.Services.Utilities;
+
+namespace CybsClient.Services.DBServices
+{
+    public static class DBCustomerServices
+    {
+        public static async Task<int> GetCustomerCount()
+        {
+            using HttpClient client = HttpClientHelper.CreateClient("Cybs.WebApi.Service");
+
+            string path = "api/customercount";
+            int result = await client.GetFromJsonAsync<int>(path);
+            return result;
+        }
+    }
+}

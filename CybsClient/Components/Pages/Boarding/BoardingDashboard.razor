@@ -1,0 +1,674 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/boarding/dashboard"
+
+@using CybsClient.Model.Cybersource.Boarding
+@using CybsClient.Services.Utilities
+@using System.Text.Json
+@using System.Text.Json.Nodes
+
+@inject NavigationManager Navigation
+
+<h2>Boarding Dashboard</h2>
+
+@* ── Duplicate Merchant Modal ─────────────────────────────────────────────── *@
+@if (_duplicateModal is not null)
+{
+    <div class="modal d-block" tabindex="-1" style="background:rgba(0,0,0,.45)">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Duplicate Merchant — @(_duplicateModal.SourceMerchant.BusinessName ?? _duplicateModal.SourceMerchant.TransactingOrganizationId)</h5>
+                    <button type="button" class="btn-close" @onclick="CloseDuplicateModal"></button>
+                </div>
+                <div class="modal-body">
+
+                    @if (!string.IsNullOrEmpty(_duplicateModal.ErrorMessage))
+                    {
+                        <div class="alert alert-danger py-1 small">@_duplicateModal.ErrorMessage</div>
+                    }
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">New Business Name <span class="text-danger">*</span></label>
+                            <input class="form-control" @bind="_duplicateModal.NewBusinessName" placeholder="Enter a name for the duplicate merchant" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Transacting Merchant ID <span class="text-danger">*</span></label>
+                            <input class="form-control font-monospace" @bind="_duplicateModal.NewTransactingOrganizationId" placeholder="e.g. ahwbasetrans001" />
+                            <div class="form-text">The ID used for transaction processing (must be unique).</div>
+                        </div>
+                    </div>
+
+                    @if (_duplicateModal.CardConfigs.Any())
+                    {
+                        <h6 class="mb-2">Card Processing Configurations</h6>
+                        <p class="text-muted small mb-2">Select which configurations to copy to the new merchant.</p>
+                        <table class="table table-sm table-bordered mb-3">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:2.5rem"><input type="checkbox" @onchange="e => ToggleAllCards((bool)e.Value!)" checked="@_duplicateModal.CardConfigs.All(c => c.Include)" /></th>
+                                    <th>Product</th>
+                                    <th>Status</th>
+                                    <th>Processors</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var cc in _duplicateModal.CardConfigs)
+                                {
+                                    <tr>
+                                        <td><input type="checkbox" @bind="cc.Include" /></td>
+                                        <td>@(cc.Item.ProductName ?? "—")</td>
+                                        <td><span class="badge @StatusBadge(cc.Item.EnablementStatus)">@(cc.Item.EnablementStatus ?? "—")</span></td>
+                                        <td class="small">@(cc.Item.Processors.Any() ? string.Join(", ", cc.Item.Processors.Select(p => p.ProcessorName ?? "?")) : "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+
+                    @if (_duplicateModal.SupplementalProducts.Any())
+                    {
+                        <h6 class="mb-2">Individual Products</h6>
+                        <p class="text-muted small mb-2">Select which products to copy to the new merchant.</p>
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                            @foreach (var sp in _duplicateModal.SupplementalProducts)
+                            {
+                                <div class="border rounded p-2 small d-flex align-items-center gap-2">
+                                    <input type="checkbox" @bind="sp.Include" />
+                                    <div>
+                                        <div class="fw-semibold">@FormatProductType(sp.Item.ProductType)</div>
+                                        <span class="badge @EnabledBadge(sp.Item.Enabled)">@(sp.Item.Enabled == true ? "Enabled" : "Disabled")</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (!_duplicateModal.CardConfigs.Any() && !_duplicateModal.SupplementalProducts.Any())
+                    {
+                        <div class="alert alert-light border small">No configurations are linked to this merchant — the duplicate will be created with no linked products.</div>
+                    }
+
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CloseDuplicateModal" disabled="@_duplicateModal.IsSaving">Cancel</button>
+                    <button class="btn btn-primary" @onclick="ConfirmDuplicateAsync" disabled="@_duplicateModal.IsSaving">
+                        @(_duplicateModal.IsSaving ? "Duplicating…" : "Duplicate Merchant")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_isLoading)
+{
+    <div class="d-flex justify-content-center my-4">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else if (_errorMessage is not null)
+{
+    <div class="alert alert-danger">
+        <strong>Error:</strong> @_errorMessage
+        @if (_errorReason is not null)
+        {
+            <div class="mt-1 small">@_errorReason</div>
+        }
+    </div>
+}
+else if (_dashboard is not null)
+{
+    @if (!_dashboard.Organizations.Any())
+    {
+        <div class="alert alert-info">No boarded organizations found.</div>
+    }
+    else
+    {
+        <div class="accordion" id="orgAccordion">
+            @foreach (var (org, orgIdx) in _dashboard.Organizations.Select((o, i) => (o, i)))
+            {
+                var collapseId = $"orgCollapse{orgIdx}";
+                var headingId  = $"orgHeading{orgIdx}";
+
+                <div class="accordion-item mb-2">
+                    <h2 class="accordion-header" id="@headingId">
+                        <button class="accordion-button collapsed" type="button"
+                                data-bs-toggle="collapse" data-bs-target="#@collapseId"
+                                aria-expanded="false" aria-controls="@collapseId">
+                            <span class="fw-bold me-2">@(org.BusinessName ?? org.OrganizationId ?? "Organization")</span>
+                            <span class="badge @StatusBadge(org.Status) me-2">@(org.Status ?? "—")</span>
+                            @if (!string.IsNullOrEmpty(org.Type))
+                            {
+                                <span class="badge bg-secondary me-2">@org.Type</span>
+                            }
+                            <span class="text-muted small">@org.OrganizationId</span>
+                        </button>
+                    </h2>
+                    <div id="@collapseId" class="accordion-collapse collapse"
+                         aria-labelledby="@headingId" data-bs-parent="#orgAccordion">
+                        <div class="accordion-body">
+
+                            <div class="mb-3 d-flex align-items-center gap-3 flex-wrap">
+                                <span class="small text-muted">BoardingFlow: <strong>@(org.BoardingFlow ?? "—")</strong></span>
+                                <a href="/orgboarding?id=@org.BoardingOrganizationId" class="btn btn-sm btn-outline-primary">Edit Org</a>
+                                <button class="btn btn-sm btn-outline-success"
+                                        @onclick="() => SubmitOrgToCybersourceAsync(org.BoardingOrganizationId)"
+                                        disabled="@(_submitting.Contains(org.BoardingOrganizationId))">
+                                    @(_submitting.Contains(org.BoardingOrganizationId) ? "Submitting..." : "Submit to Cybersource")
+                                </button>
+                            </div>
+                            @if (_submitStatus.TryGetValue(org.BoardingOrganizationId, out var orgStatus) && orgStatus is not null)
+                            {
+                                <div class="alert @(_submitIsError.GetValueOrDefault(org.BoardingOrganizationId) ? "alert-danger" : "alert-success") alert-sm py-2 px-2 small mb-3">
+                                    <div class="mb-1">@orgStatus</div>
+                                    @if (_submitResponseJson.TryGetValue(org.BoardingOrganizationId, out var orgResponseJson) && !string.IsNullOrEmpty(orgResponseJson))
+                                    {
+                                        <pre class="mb-0 p-2 bg-body-tertiary border rounded" style="white-space: pre-wrap; word-break: break-word;">@orgResponseJson</pre>
+                                    }
+                                </div>
+                            }
+
+                            @if (!org.TransactingMerchants.Any())
+                            {
+                                <div class="alert alert-light border small">No transacting merchants linked to this organization.</div>
+                            }
+                            else
+                            {
+                                @foreach (var merchant in org.TransactingMerchants)
+                                {
+                                    var mid = merchant.BoardingTransactingMerchantId;
+                                    var merchantNtEnabled = merchant.SupplementalProducts
+                                        .Any(p => p.ProductType == BoardingProductTypes.TokenManagement && p.Enabled == true);
+                                    <div class="card mb-3">
+                                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                            <div>
+                                                <span class="fw-bold me-2">@(merchant.BusinessName ?? merchant.TransactingOrganizationId ?? "Merchant")</span>
+                                                <span class="badge @StatusBadge(merchant.Status) me-1">@(merchant.Status ?? "—")</span>
+                                                @if (!string.IsNullOrEmpty(merchant.BoardingProcessor))
+                                                {
+                                                    <span class="badge bg-info text-dark me-2">@merchant.BoardingProcessor</span>
+                                                }
+                                                @if (merchant.CybersourceBoardingStatus == "BOARDED")
+                                                {
+                                                    <span class="badge bg-success me-2">BOARDED</span>
+                                                }
+                                                <span class="text-muted small">@merchant.TransactingOrganizationId</span>
+                                            </div>
+                                            <div class="d-flex gap-2 align-items-center flex-wrap">
+                                                @if (merchantNtEnabled)
+                                                {
+                                                    <span class="badge bg-info text-dark"
+                                                          title="Token Management is enabled for this merchant — submitted separately via the PECS endpoint, not part of Board to Cybersource">NT</span>
+                                                }
+                                                <button class="btn btn-sm btn-outline-success"
+                                                        @onclick="() => BoardMerchantToCybersourceAsync(mid)"
+                                                        disabled="@(_merchantSubmitting.Contains(mid))">
+                                                    @(_merchantSubmitting.Contains(mid) ? "Boarding..." : "Board to Cybersource")
+                                                </button>
+                                                <a href="/transactingboarding?id=@mid" class="btn btn-sm btn-outline-secondary">Edit Merchant</a>
+                                                <a href="/boarding/networktokenform/@mid" class="btn btn-sm btn-outline-info">Configure NT</a>
+                                                <button class="btn btn-sm btn-outline-info"
+                                                        @onclick="() => OpenDuplicateModal(merchant)">
+                                                    Duplicate
+                                                </button>
+                                            </div>
+                                        </div>
+                                        @if (_merchantSubmitStatus.TryGetValue(mid, out var mStatus) && mStatus is not null)
+                                        {
+                                            <div class="alert @(_merchantSubmitIsError.GetValueOrDefault(mid) ? "alert-danger" : "alert-success") alert-sm py-1 px-2 small mb-0 rounded-0">
+                                                @mStatus
+                                            </div>
+                                        }
+                                        <div class="card-body">
+
+                                            @if (merchant.CardProductSubscriptions.Any())
+                                            {
+                                                <h6 class="mb-2">Card Processing Configurations</h6>
+                                                <table class="table table-sm table-bordered mb-3">
+                                                    <thead class="table-light">
+                                                        <tr>
+                                                            <th style="width:2.5rem" title="Include in Board to Cybersource">Include</th>
+                                                            <th>Product</th>
+                                                            <th>Status</th>
+                                                            <th>Boarding Status</th>
+                                                            <th>Card Present</th>
+                                                            <th>Card Not Present</th>
+                                                            <th>Processors</th>
+                                                            <th></th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var card in merchant.CardProductSubscriptions)
+                                                        {
+                                                            var cardBoarded  = string.Equals(card.CybersourceBoardingStatus, "BOARDED", StringComparison.OrdinalIgnoreCase);
+                                                            var cardJunction = card.BoardingTransactingMerchantSubscriptionId;
+                                                            <tr>
+                                                                <td class="text-center">
+                                                                    <input type="checkbox"
+                                                                           checked="@card.IncludeInBoarding"
+                                                                           disabled="@(cardBoarded || _cardConfigUpdating.Contains(cardJunction))"
+                                                                           title="@(cardBoarded ? "Already boarded — cannot change" : "Include in Board to Cybersource")"
+                                                                           @onchange="async e => await ToggleCardConfigIncludeAsync(cardJunction, (bool)e.Value!)" />
+                                                                </td>
+                                                                <td>@(card.ProductName ?? "—")</td>
+                                                                <td><span class="badge @StatusBadge(card.EnablementStatus)">@(card.EnablementStatus ?? "—")</span></td>
+                                                                <td>
+                                                                    @if (card.CybersourceBoardingStatus is not null)
+                                                                    {
+                                                                        <span class="badge @BoardingStatusBadge(card.CybersourceBoardingStatus)">@card.CybersourceBoardingStatus</span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span class="text-muted small">Not submitted</span>
+                                                                    }
+                                                                </td>
+                                                                <td>@BoolText(card.CardPresentEnabled)</td>
+                                                                <td>@BoolText(card.CardNotPresentEnabled)</td>
+                                                                <td class="small">@(card.Processors.Any() ? string.Join(", ", card.Processors.Select(p => p.ProcessorName ?? "?")) : "—")</td>
+                                                                <td><a href="/cardprocessingconfig?id=@card.BoardingProductSubscriptionId" class="btn btn-sm btn-outline-secondary">Edit</a></td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            }
+
+                                            @if (merchant.SupplementalProducts.Any())
+                                            {
+                                                <h6 class="mb-2">Individual Products</h6>
+                                                <div class="d-flex flex-wrap gap-2 mb-2">
+                                                    @foreach (var product in merchant.SupplementalProducts)
+                                                    {
+                                                        var prodSubmitted = string.Equals(product.CybersourceBoardingStatus, "BOARDED", StringComparison.OrdinalIgnoreCase);
+                                                        var prodJunction  = product.BoardingTransactingMerchantProductSubscriptionId;
+                                                        var isTokenManagement = product.ProductType == BoardingProductTypes.TokenManagement;
+                                                        <div class="border rounded p-2 small d-flex align-items-start gap-2">
+                                                            @if (!isTokenManagement)
+                                                            {
+                                                                <input type="checkbox"
+                                                                       class="mt-1"
+                                                                       checked="@product.IncludeInBoarding"
+                                                                       disabled="@(prodSubmitted || _productLinkUpdating.Contains(prodJunction))"
+                                                                       title="@(prodSubmitted ? "Already submitted — cannot change" : "Include in Board to Cybersource")"
+                                                                       @onchange="async e => await ToggleProductLinkIncludeAsync(prodJunction, (bool)e.Value!)" />
+                                                            }
+                                                            <div>
+                                                                <div class="fw-semibold mb-1">@FormatProductType(product.ProductType)</div>
+                                                                <span class="badge @EnabledBadge(product.Enabled)">@(product.Enabled == true ? "Enabled" : product.Enabled == false ? "Disabled" : "—")</span>
+                                                                @if (!string.IsNullOrEmpty(product.EnablementStatus))
+                                                                {
+                                                                    <span class="badge @StatusBadge(product.EnablementStatus) ms-1">@product.EnablementStatus</span>
+                                                                }
+                                                                @if (isTokenManagement)
+                                                                {
+                                                                    <span class="badge bg-secondary ms-1" title="Token Management boards separately via the PECS endpoint, not with Board to Cybersource">Separate submission</span>
+                                                                    @if (!string.IsNullOrEmpty(product.NtCybersourceBoardingStatus))
+                                                                    {
+                                                                        <span class="badge @BoardingStatusBadge(product.NtCybersourceBoardingStatus) ms-1">NT: @product.NtCybersourceBoardingStatus</span>
+                                                                    }
+                                                                    else if (product.Enabled == true)
+                                                                    {
+                                                                        <span class="badge bg-warning text-dark ms-1">NT: Not Submitted</span>
+                                                                    }
+                                                                }
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+
+                                            @if (!merchant.CardProductSubscriptions.Any() && !merchant.SupplementalProducts.Any())
+                                            {
+                                                <div class="alert alert-light border small mb-0">No products linked to this merchant.</div>
+                                            }
+
+                                        </div>
+                                    </div>
+                                }
+                            }
+
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private bool _isLoading = true;
+    private string? _errorMessage;
+    private string? _errorReason;
+    private BoardingDashboardDto? _dashboard;
+
+    private readonly HashSet<int>             _submitting   = new();
+    private readonly Dictionary<int, string?> _submitStatus  = new();
+    private readonly Dictionary<int, bool>    _submitIsError = new();
+    private readonly Dictionary<int, string?> _submitResponseJson = new();
+
+    private readonly HashSet<int>             _merchantSubmitting   = new();
+    private readonly Dictionary<int, string?> _merchantSubmitStatus  = new();
+    private readonly Dictionary<int, bool>    _merchantSubmitIsError = new();
+
+    private readonly HashSet<int> _cardConfigUpdating   = new();
+    private readonly HashSet<int> _productLinkUpdating  = new();
+
+    // ── Duplicate merchant modal state ────────────────────────────────────────
+    private DuplicateMerchantModal? _duplicateModal;
+
+    private sealed class DuplicateMerchantModal
+    {
+        public required BoardingDashboardMerchantItem SourceMerchant { get; init; }
+        public required int BoardingOrganizationId { get; init; }
+        public string NewBusinessName { get; set; } = string.Empty;
+        public string NewTransactingOrganizationId { get; set; } = string.Empty;
+        public List<SelectableItem<BoardingDashboardCardProductItem>> CardConfigs { get; init; } = new();
+        public List<SelectableItem<BoardingDashboardSupplementalProductItem>> SupplementalProducts { get; init; } = new();
+        public bool IsSaving { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
+
+    private sealed class SelectableItem<T>
+    {
+        public required T Item { get; init; }
+        public bool Include { get; set; } = true;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await CallMinAPIs.GetBoardingDashboardAsync();
+        if (result.Error is not null)
+        {
+            _errorMessage = result.Error.Message;
+            _errorReason  = result.Error.Reason;
+            _isLoading = false;
+            return;
+        }
+
+        _dashboard = result.Data;
+
+        // For each org whose TransactingMerchants list came back empty from the hierarchy
+        // endpoint, fall back to a direct per-org query.  This covers the case where a
+        // merchant's BoardingOrganizationId was stored correctly in the DB but the
+        // in-memory grouping in the dashboard service missed it (e.g. existing rows that
+        // pre-date the FK constraint).
+        if (_dashboard is not null)
+        {
+            foreach (var org in _dashboard.Organizations)
+            {
+                if (org.TransactingMerchants.Any()) continue;
+
+                var fallback = await CallMinAPIs.GetBoardingTransactingMerchantsByOrgAsync(org.BoardingOrganizationId);
+                if (fallback.Error is not null || fallback.Data is null) continue;
+
+                org.TransactingMerchants.AddRange(
+                    fallback.Data.Select(m => new BoardingDashboardMerchantItem
+                    {
+                        BoardingTransactingMerchantId = m.BoardingTransactingMerchantId,
+                        TransactingOrganizationId     = m.TransactingOrganizationId,
+                        BusinessName                  = m.BusinessName,
+                        Status                        = m.Status,
+                        BoardingProcessor             = m.BoardingProcessor,
+                        CybersourceBoardingStatus     = m.CybersourceBoardingStatus
+                    }));
+            }
+        }
+
+        _isLoading = false;
+    }
+
+    private async Task BoardMerchantToCybersourceAsync(int boardingTransactingMerchantId)
+    {
+        _merchantSubmitting.Add(boardingTransactingMerchantId);
+        _merchantSubmitStatus[boardingTransactingMerchantId]  = null;
+        _merchantSubmitIsError[boardingTransactingMerchantId] = false;
+        StateHasChanged();
+
+        var result = await CallMinAPIs.SubmitTransactingMerchantToCybersourceAsync(boardingTransactingMerchantId);
+
+        _merchantSubmitting.Remove(boardingTransactingMerchantId);
+
+        if (result.Error is not null)
+        {
+            _merchantSubmitIsError[boardingTransactingMerchantId] = true;
+            _merchantSubmitStatus[boardingTransactingMerchantId]  = result.Error.Message;
+        }
+        else
+        {
+            _merchantSubmitIsError[boardingTransactingMerchantId] = false;
+            _merchantSubmitStatus[boardingTransactingMerchantId]  = "Boarded to Cybersource successfully.";
+
+            // Update local model so the BOARDED badge appears without a full re-render
+            foreach (var org in _dashboard?.Organizations ?? new())
+            {
+                var merchant = org.TransactingMerchants
+                    .FirstOrDefault(m => m.BoardingTransactingMerchantId == boardingTransactingMerchantId);
+                if (merchant is not null)
+                {
+                    merchant.CybersourceBoardingStatus = "BOARDED";
+                    break;
+                }
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private static readonly JsonSerializerOptions _prettyJsonOptions = new() { WriteIndented = true };
+
+    private async Task SubmitOrgToCybersourceAsync(int boardingOrganizationId)
+    {
+        _submitting.Add(boardingOrganizationId);
+        _submitStatus[boardingOrganizationId] = null;
+        _submitIsError[boardingOrganizationId] = false;
+        _submitResponseJson[boardingOrganizationId] = null;
+        StateHasChanged();
+
+        var result = await CallMinAPIs.SubmitOrgToCybersourceAsync(boardingOrganizationId);
+
+        _submitting.Remove(boardingOrganizationId);
+        _submitResponseJson[boardingOrganizationId] = result.ResponseJson?.ToJsonString(_prettyJsonOptions);
+
+        if (result.Error is not null)
+        {
+            _submitIsError[boardingOrganizationId] = true;
+            _submitStatus[boardingOrganizationId] = result.Error.Message;
+        }
+        else
+        {
+            _submitIsError[boardingOrganizationId] = false;
+            _submitStatus[boardingOrganizationId] = "Submitted to Cybersource. Response:";
+        }
+    }
+
+    private static string StatusBadge(string? status) => status?.ToUpperInvariant() switch
+    {
+        "ACTIVE" or "LIVE"    => "bg-success",
+        "TEST" or "PENDING"   => "bg-warning text-dark",
+        "INACTIVE" or "ERROR" => "bg-danger",
+        _                     => "bg-secondary"
+    };
+
+    // ── Duplicate merchant ─────────────────────────────────────────────────────
+
+    private void OpenDuplicateModal(BoardingDashboardMerchantItem merchant)
+    {
+        // Find the parent org id
+        var orgId = _dashboard?.Organizations
+            .FirstOrDefault(o => o.TransactingMerchants.Any(m => m.BoardingTransactingMerchantId == merchant.BoardingTransactingMerchantId))
+            ?.BoardingOrganizationId ?? 0;
+
+        _duplicateModal = new DuplicateMerchantModal
+        {
+            SourceMerchant             = merchant,
+            BoardingOrganizationId     = orgId,
+            NewBusinessName            = $"{merchant.BusinessName ?? merchant.TransactingOrganizationId} (Copy)",
+            NewTransactingOrganizationId = string.Empty,
+            CardConfigs          = merchant.CardProductSubscriptions
+                                    .Select(c => new SelectableItem<BoardingDashboardCardProductItem> { Item = c })
+                                    .ToList(),
+            SupplementalProducts = merchant.SupplementalProducts
+                                    .Select(s => new SelectableItem<BoardingDashboardSupplementalProductItem> { Item = s })
+                                    .ToList()
+        };
+    }
+
+    private void CloseDuplicateModal() => _duplicateModal = null;
+
+    private void ToggleAllCards(bool value)
+    {
+        if (_duplicateModal is null) return;
+        foreach (var c in _duplicateModal.CardConfigs) c.Include = value;
+    }
+
+    private async Task ConfirmDuplicateAsync()
+    {
+        if (_duplicateModal is null) return;
+
+        if (string.IsNullOrWhiteSpace(_duplicateModal.NewBusinessName))
+        {
+            _duplicateModal.ErrorMessage = "Please enter a business name for the new merchant.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_duplicateModal.NewTransactingOrganizationId))
+        {
+            _duplicateModal.ErrorMessage = "Please enter a Transacting Merchant ID for the new merchant.";
+            return;
+        }
+
+        _duplicateModal.IsSaving = true;
+        _duplicateModal.ErrorMessage = null;
+        StateHasChanged();
+
+        var src = _duplicateModal.SourceMerchant;
+
+        // 1. Create the new transacting merchant (POST with id=0 triggers insert)
+        var newMerchant = new BoardingTransactingMerchantDto
+        {
+            BoardingTransactingMerchantId = 0,
+            BoardingOrganizationId        = _duplicateModal.BoardingOrganizationId,
+            BusinessName                  = _duplicateModal.NewBusinessName,
+            TransactingOrganizationId     = _duplicateModal.NewTransactingOrganizationId,
+            Status                        = src.Status,
+            BoardingProcessor             = src.BoardingProcessor,
+            ParentOrganizationId          = src.TransactingOrganizationId  // maintain parent association
+        };
+
+        var createResult = await CallMinAPIs.SaveBoardingTransactingMerchantAsync(newMerchant);
+        if (createResult.Error is not null || createResult.Data is null)
+        {
+            _duplicateModal.ErrorMessage = $"Failed to create merchant: {createResult.Error?.Message ?? "Unknown error"}";
+            _duplicateModal.IsSaving = false;
+            return;
+        }
+
+        var newMid = createResult.Data.BoardingTransactingMerchantId;
+
+        // 2. Clone and link selected card processing configs so each merchant owns independent processor config records
+        foreach (var cc in _duplicateModal.CardConfigs.Where(c => c.Include))
+        {
+            var cloneResult = await CallMinAPIs.CloneCardProductSubscriptionAsync(cc.Item.BoardingProductSubscriptionId);
+            var clonedSubId = cloneResult.Data?.BoardingProductSubscriptionId ?? cc.Item.BoardingProductSubscriptionId;
+            await CallMinAPIs.LinkSubscriptionToMerchantAsync(new BoardingTransactingMerchantSubscriptionDto
+            {
+                BoardingTransactingMerchantId  = newMid,
+                BoardingProductSubscriptionId  = clonedSubId
+            });
+        }
+
+        // 3. Link selected supplemental products
+        foreach (var sp in _duplicateModal.SupplementalProducts.Where(s => s.Include))
+        {
+            await CallMinAPIs.LinkProductSubscriptionAsync(new BoardingTransactingMerchantProductSubscriptionDto
+            {
+                BoardingTransactingMerchantId = newMid,
+                ProductType                   = sp.Item.ProductType,
+                ProductSubscriptionId         = sp.Item.ProductSubscriptionId
+            });
+        }
+
+        _duplicateModal = null;
+
+        // Reload the dashboard to reflect the new merchant
+        _isLoading = true;
+        StateHasChanged();
+        await OnInitializedAsync();
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private static string EnabledBadge(bool? enabled) => enabled switch
+    {
+        true  => "bg-success",
+        false => "bg-secondary",
+        _     => "bg-light text-dark border"
+    };
+
+    private static string BoolText(bool? value) => value switch
+    {
+        true  => "Yes",
+        false => "No",
+        _     => "—"
+    };
+
+    private static string FormatProductType(string? productType) => productType switch
+    {
+        "digitalPayments"    => "Digital Payments",
+        "customerInvoicing"  => "Customer Invoicing",
+        "payByLink"          => "Pay By Link",
+        "tokenManagement"    => "Token Management",
+        "unifiedCheckout"    => "Unified Checkout",
+        "valueAddedServices" => "Value Added Services",
+        "virtualTerminal"    => "Virtual Terminal",
+        _                    => productType ?? "Unknown"
+    };
+
+    private static string BoardingStatusBadge(string? status) => status?.ToUpperInvariant() switch
+    {
+        "BOARDED"  => "bg-success",
+        "FAILED"   => "bg-danger",
+        "PENDING"  => "bg-warning text-dark",
+        _          => "bg-secondary"
+    };
+
+    private async Task ToggleCardConfigIncludeAsync(int junctionId, bool include)
+    {
+        _cardConfigUpdating.Add(junctionId);
+        StateHasChanged();
+        var result = await CallMinAPIs.UpdateCardConfigIncludeInBoardingAsync(junctionId, include);
+        _cardConfigUpdating.Remove(junctionId);
+        if (result.Error is null)
+        {
+            foreach (var org in _dashboard?.Organizations ?? new())
+            foreach (var m in org.TransactingMerchants)
+            {
+                var card = m.CardProductSubscriptions
+                    .FirstOrDefault(c => c.BoardingTransactingMerchantSubscriptionId == junctionId);
+                if (card is not null) { card.IncludeInBoarding = include; break; }
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async Task ToggleProductLinkIncludeAsync(int junctionId, bool include)
+    {
+        _productLinkUpdating.Add(junctionId);
+        StateHasChanged();
+        var result = await CallMinAPIs.UpdateProductLinkIncludeInBoardingAsync(junctionId, include);
+        _productLinkUpdating.Remove(junctionId);
+        if (result.Error is null)
+        {
+            foreach (var org in _dashboard?.Organizations ?? new())
+            foreach (var m in org.TransactingMerchants)
+            {
+                var prod = m.SupplementalProducts
+                    .FirstOrDefault(p => p.BoardingTransactingMerchantProductSubscriptionId == junctionId);
+                if (prod is not null) { prod.IncludeInBoarding = include; break; }
+            }
+        }
+        StateHasChanged();
+    }
+}

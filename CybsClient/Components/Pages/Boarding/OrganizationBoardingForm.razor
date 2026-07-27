@@ -1,0 +1,434 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/orgboarding"
+
+@using CybsClient.Model.Cybersource.Boarding
+@using CybsClient.Services.Utilities
+@using System.Text.Json
+
+@inject NavigationManager Navigation
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/boarding/dashboard">Boarding Dashboard</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Organization Boarding</li>
+    </ol>
+</nav>
+<h2>Organization Boarding</h2>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible">
+        @_statusMessage
+        <button type="button" class="btn-close" @onclick="() => _statusMessage = string.Empty"></button>
+    </div>
+}
+
+@if (_savedOrgs.Count > 0)
+{
+    <div class="card mb-4">
+        <div class="card-header"><b>Saved Organizations</b></div>
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Org ID</th>
+                        <th>Parent</th>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Type</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var org in _savedOrgs)
+                    {
+                        <tr class="@(_model.BoardingOrganizationId == org.BoardingOrganizationId ? "table-primary" : "")">
+                            <td>@org.BoardingOrganizationId</td>
+                            <td>@org.OrganizationId</td>
+                            <td>@org.ParentOrganizationId</td>
+                            <td>@org.BusinessName</td>
+                            <td>@org.Status</td>
+                            <td>@org.Type</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => LoadForEdit(org)">Edit</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(org.BoardingOrganizationId)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><b>Load from JSON</b></span>
+    </div>
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-10">
+                <textarea class="form-control font-monospace" rows="4" placeholder="Paste BaseMerchantJSON.json here..."
+                          @bind="_jsonInput"></textarea>
+            </div>
+            <div class="col-2 d-flex align-items-center">
+                <button class="btn btn-outline-secondary w-100" @onclick="LoadFromJson">Load JSON</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header"><b>Organization Information</b></div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Organization ID</label>
+                    <input class="form-control" @bind="_model.OrganizationId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Parent Organization ID</label>
+                    <input class="form-control" @bind="_model.ParentOrganizationId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Status</label>
+                    <select class="form-select" @bind="_model.Status">
+                        <option value="">-- Select --</option>
+                        <option value="TEST">TEST</option>
+                        <option value="LIVE">LIVE</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Type</label>
+                    <select class="form-select" @bind="_model.Type">
+                        <option value="">-- Select --</option>
+                        <option value="MERCHANT">MERCHANT</option>
+                        <option value="STRUCTURAL">STRUCTURAL</option>
+                    </select>
+                </div>
+                <div class="mb-2 form-check form-switch">
+                    <input class="form-check-input" type="checkbox" @bind="_configurable" id="configurable" />
+                    <label class="form-check-label" for="configurable">Configurable</label>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Boarding Flow</label>
+                    <input class="form-control" @bind="_model.BoardingFlow" placeholder="ENTERPRISE" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Mode</label>
+                    <input class="form-control" @bind="_model.Mode" placeholder="COMPLETE" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Boarding Package ID</label>
+                    <input class="form-control" @bind="_model.BoardingPackageId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Portfolio</label>
+                    <select class="form-select" @bind="_model.BoardingPortfolioId">
+                        <option value="">-- None --</option>
+                        @foreach (var portfolio in _portfolios)
+                        {
+                            <option value="@portfolio.BoardingPortfolioId">@portfolio.PortfolioName</option>
+                        }
+                    </select>
+                    <div class="form-text">
+                        Optional. Governs which Portfolio's Boarding Package/Template ID defaults this
+                        Organization's Transacting Merchants fall back to, and (if the Portfolio declares an
+                        Expected Signature Merchant ID) which signing credential a live submission requires.
+                        Manage Portfolios on the <a href="/portfolioboarding">Portfolio Boarding</a> page.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header"><b>Business Information</b></div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Business Name</label>
+                    <input class="form-control" @bind="_model.BusinessName" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Website URL</label>
+                    <input class="form-control" @bind="_model.WebsiteUrl" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Business Phone</label>
+                    <input class="form-control" @bind="_model.BusinessPhoneNumber" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Time Zone</label>
+                    <input class="form-control" @bind="_model.TimeZone" placeholder="America/Chicago" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Merchant Category Code</label>
+                    <input class="form-control" @bind="_model.MerchantCategoryCode" placeholder="5999" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Country</label>
+                    <input class="form-control" @bind="_model.AddressCountry" placeholder="US" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Address 1</label>
+                    <input class="form-control" @bind="_model.Address1" />
+                </div>
+                <div class="row g-2">
+                    <div class="col-4">
+                        <label class="form-label">City</label>
+                        <input class="form-control" @bind="_model.Locality" />
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">State</label>
+                        <input class="form-control" @bind="_model.AdministrativeArea" />
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">Postal Code</label>
+                        <input class="form-control" @bind="_model.PostalCode" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header"><b>Business Contact</b></div>
+            <div class="card-body">
+                <div class="row g-2 mb-2">
+                    <div class="col-6"><label class="form-label">First Name</label><input class="form-control" @bind="_model.BusinessContactFirstName" /></div>
+                    <div class="col-6"><label class="form-label">Last Name</label><input class="form-control" @bind="_model.BusinessContactLastName" /></div>
+                </div>
+                <div class="mb-2"><label class="form-label">Phone</label><input class="form-control" @bind="_model.BusinessContactPhone" /></div>
+                <div class="mb-2"><label class="form-label">Email</label><input class="form-control" @bind="_model.BusinessContactEmail" /></div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header"><b>Technical Contact</b></div>
+            <div class="card-body">
+                <div class="row g-2 mb-2">
+                    <div class="col-6"><label class="form-label">First Name</label><input class="form-control" @bind="_model.TechnicalContactFirstName" /></div>
+                    <div class="col-6"><label class="form-label">Last Name</label><input class="form-control" @bind="_model.TechnicalContactLastName" /></div>
+                </div>
+                <div class="mb-2"><label class="form-label">Phone</label><input class="form-control" @bind="_model.TechnicalContactPhone" /></div>
+                <div class="mb-2"><label class="form-label">Email</label><input class="form-control" @bind="_model.TechnicalContactEmail" /></div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header"><b>Emergency Contact</b></div>
+            <div class="card-body">
+                <div class="row g-2 mb-2">
+                    <div class="col-6"><label class="form-label">First Name</label><input class="form-control" @bind="_model.EmergencyContactFirstName" /></div>
+                    <div class="col-6"><label class="form-label">Last Name</label><input class="form-control" @bind="_model.EmergencyContactLastName" /></div>
+                </div>
+                <div class="mb-2"><label class="form-label">Phone</label><input class="form-control" @bind="_model.EmergencyContactPhone" /></div>
+                <div class="mb-2"><label class="form-label">Email</label><input class="form-control" @bind="_model.EmergencyContactEmail" /></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex gap-2 mb-4">
+    <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
+        @(_saving ? "Saving..." : (_model.BoardingOrganizationId == 0 ? "Save Organization" : "Update Organization"))
+    </button>
+    <button class="btn btn-outline-secondary" @onclick="ResetForm">Reset</button>
+    <a class="btn btn-outline-primary" href="/transactingboarding">Go to Transacting Boarding</a>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "id")]
+    public int? Id { get; set; }
+
+    private BoardingOrganizationDto _model = new();
+    private List<BoardingOrganizationDto> _savedOrgs = new();
+    private List<BoardingPortfolioDto> _portfolios = new();
+    private string _jsonInput = string.Empty;
+    private string _statusMessage = string.Empty;
+    private bool _isError = false;
+    private bool _saving = false;
+    private bool _configurable = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOrgsAsync();
+        await LoadPortfoliosAsync();
+
+        if (Id.HasValue && Id.Value > 0)
+        {
+            var existing = _savedOrgs.FirstOrDefault(o => o.BoardingOrganizationId == Id.Value);
+            if (existing is not null)
+                LoadForEdit(existing);
+        }
+    }
+
+    private async Task LoadOrgsAsync()
+    {
+        var loaded = await CallMinAPIs.GetBoardingOrganizationsAsync();
+        _savedOrgs = loaded.Data ?? new();
+        if (loaded.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Failed to load organizations: {loaded.Error.Message}";
+        }
+    }
+
+    private async Task LoadPortfoliosAsync()
+    {
+        var loaded = await CallMinAPIs.GetBoardingPortfoliosAsync();
+        _portfolios = loaded.Data ?? new();
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        _model.Configurable = _configurable;
+        var result = await CallMinAPIs.SaveBoardingOrganizationAsync(_model);
+        _saving = false;
+
+        if (result.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Error: {result.Error.Message}";
+        }
+        else
+        {
+            _isError = false;
+            _statusMessage = _model.BoardingOrganizationId == 0
+                ? $"Organization '{result.Data?.OrganizationId}' saved (ID={result.Data?.BoardingOrganizationId})."
+                : $"Organization '{result.Data?.OrganizationId}' updated.";
+            ResetForm();
+            await LoadOrgsAsync();
+        }
+    }
+
+    private async Task DeleteAsync(int id)
+    {
+        var result = await CallMinAPIs.DeleteBoardingOrganizationAsync(id);
+        _isError = !result.IsSuccess;
+        _statusMessage = result.Error is not null
+            ? $"Failed to delete organization {id}: {result.Error.Message}"
+            : $"Organization {id} deleted.";
+        await LoadOrgsAsync();
+    }
+
+    private void LoadForEdit(BoardingOrganizationDto org)
+    {
+        _model = new BoardingOrganizationDto
+        {
+            BoardingOrganizationId   = org.BoardingOrganizationId,
+            OrganizationId           = org.OrganizationId,
+            ParentOrganizationId     = org.ParentOrganizationId,
+            Status                   = org.Status,
+            Type                     = org.Type,
+            Configurable             = org.Configurable,
+            BoardingFlow             = org.BoardingFlow,
+            Mode                     = org.Mode,
+            BoardingPackageId        = org.BoardingPackageId,
+            BoardingPortfolioId      = org.BoardingPortfolioId,
+            BusinessName             = org.BusinessName,
+            WebsiteUrl               = org.WebsiteUrl,
+            BusinessPhoneNumber      = org.BusinessPhoneNumber,
+            TimeZone                 = org.TimeZone,
+            MerchantCategoryCode     = org.MerchantCategoryCode,
+            AddressCountry           = org.AddressCountry,
+            Address1                 = org.Address1,
+            PostalCode               = org.PostalCode,
+            AdministrativeArea       = org.AdministrativeArea,
+            Locality                 = org.Locality,
+            BusinessContactFirstName = org.BusinessContactFirstName,
+            BusinessContactLastName  = org.BusinessContactLastName,
+            BusinessContactPhone     = org.BusinessContactPhone,
+            BusinessContactEmail     = org.BusinessContactEmail,
+            TechnicalContactFirstName = org.TechnicalContactFirstName,
+            TechnicalContactLastName  = org.TechnicalContactLastName,
+            TechnicalContactPhone     = org.TechnicalContactPhone,
+            TechnicalContactEmail     = org.TechnicalContactEmail,
+            EmergencyContactFirstName = org.EmergencyContactFirstName,
+            EmergencyContactLastName  = org.EmergencyContactLastName,
+            EmergencyContactPhone     = org.EmergencyContactPhone,
+            EmergencyContactEmail     = org.EmergencyContactEmail
+        };
+        _configurable = _model.Configurable ?? true;
+        _statusMessage = string.Empty;
+    }
+
+    private void LoadFromJson()
+    {
+        if (string.IsNullOrWhiteSpace(_jsonInput)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(_jsonInput);
+            var root = doc.RootElement;
+
+            var orgInfo = root.TryGetProperty("organizationInformation", out var oi) ? oi : (JsonElement?)null;
+            var regInfo = root.TryGetProperty("registrationInformation", out var ri) ? ri : (JsonElement?)null;
+            var busInfo = orgInfo?.TryGetProperty("businessInformation", out var biElement) == true ? biElement : (JsonElement?)null;
+
+            _model.OrganizationId       = orgInfo?.TryGetProperty("organizationId", out var v) == true ? v.GetString() : _model.OrganizationId;
+            _model.ParentOrganizationId = orgInfo?.TryGetProperty("parentOrganizationId", out var v2) == true ? v2.GetString() : _model.ParentOrganizationId;
+            _model.Status               = orgInfo?.TryGetProperty("status", out var v3) == true ? v3.GetString() : _model.Status;
+            _model.Type                 = orgInfo?.TryGetProperty("type", out var v4) == true ? v4.GetString() : _model.Type;
+            _model.BoardingFlow         = regInfo?.TryGetProperty("boardingFlow", out var v5) == true ? v5.GetString() : _model.BoardingFlow;
+            _model.Mode                 = regInfo?.TryGetProperty("mode", out var v6) == true ? v6.GetString() : _model.Mode;
+            _model.BoardingPackageId    = regInfo?.TryGetProperty("boardingPackageId", out var v7) == true ? v7.GetString() : _model.BoardingPackageId;
+
+            if (orgInfo?.TryGetProperty("configurable", out var cv) == true)
+                _configurable = cv.GetBoolean();
+
+            if (busInfo.HasValue)
+            {
+                var bi = busInfo.Value;
+                _model.BusinessName      = bi.TryGetProperty("name", out var n)         ? n.GetString()  : _model.BusinessName;
+                _model.WebsiteUrl        = bi.TryGetProperty("websiteUrl", out var wu)  ? wu.GetString() : _model.WebsiteUrl;
+                _model.BusinessPhoneNumber = bi.TryGetProperty("phoneNumber", out var ph) ? ph.GetString() : _model.BusinessPhoneNumber;
+                _model.TimeZone          = bi.TryGetProperty("timeZone", out var tz)    ? tz.GetString() : _model.TimeZone;
+                _model.MerchantCategoryCode = bi.TryGetProperty("merchantCategoryCode", out var mcc) ? mcc.GetString() : _model.MerchantCategoryCode;
+
+                if (bi.TryGetProperty("address", out var addr))
+                {
+                    _model.AddressCountry   = addr.TryGetProperty("country", out var c)           ? c.GetString()  : _model.AddressCountry;
+                    _model.Address1         = addr.TryGetProperty("address1", out var a1)          ? a1.GetString() : _model.Address1;
+                    _model.PostalCode       = addr.TryGetProperty("postalCode", out var pc)        ? pc.GetString() : _model.PostalCode;
+                    _model.AdministrativeArea = addr.TryGetProperty("administrativeArea", out var aa) ? aa.GetString() : _model.AdministrativeArea;
+                    _model.Locality         = addr.TryGetProperty("locality", out var loc)         ? loc.GetString() : _model.Locality;
+                }
+
+                void ReadContact(string key, Action<string?, string?, string?, string?> setter)
+                {
+                    if (bi.TryGetProperty(key, out var ct))
+                    {
+                        setter(
+                            ct.TryGetProperty("firstName", out var f) ? f.GetString() : null,
+                            ct.TryGetProperty("lastName", out var l) ? l.GetString() : null,
+                            ct.TryGetProperty("phoneNumber", out var p) ? p.GetString() : null,
+                            ct.TryGetProperty("email", out var e) ? e.GetString() : null);
+                    }
+                }
+
+                ReadContact("businessContact",  (f, l, p, e) => { _model.BusinessContactFirstName = f ?? _model.BusinessContactFirstName; _model.BusinessContactLastName = l ?? _model.BusinessContactLastName; _model.BusinessContactPhone = p ?? _model.BusinessContactPhone; _model.BusinessContactEmail = e ?? _model.BusinessContactEmail; });
+                ReadContact("technicalContact", (f, l, p, e) => { _model.TechnicalContactFirstName = f ?? _model.TechnicalContactFirstName; _model.TechnicalContactLastName = l ?? _model.TechnicalContactLastName; _model.TechnicalContactPhone = p ?? _model.TechnicalContactPhone; _model.TechnicalContactEmail = e ?? _model.TechnicalContactEmail; });
+                ReadContact("emergencyContact", (f, l, p, e) => { _model.EmergencyContactFirstName = f ?? _model.EmergencyContactFirstName; _model.EmergencyContactLastName = l ?? _model.EmergencyContactLastName; _model.EmergencyContactPhone = p ?? _model.EmergencyContactPhone; _model.EmergencyContactEmail = e ?? _model.EmergencyContactEmail; });
+            }
+
+            _statusMessage = "JSON loaded successfully.";
+            _isError = false;
+            _jsonInput = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = $"Invalid JSON: {ex.Message}";
+        }
+    }
+
+    private void ResetForm()
+    {
+        _model = new BoardingOrganizationDto();
+        _configurable = true;
+        _jsonInput = string.Empty;
+    }
+}

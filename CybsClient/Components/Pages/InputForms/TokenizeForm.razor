@@ -1,0 +1,321 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/tokenize"
+
+@inject NavigationManager Navigation
+@inject ISessionTransactions sessionTransactions
+
+@using CybsClient.Services.Utilities
+@using CybsClient.Model
+@using System.Text.Json
+@using System.Text.Json.Nodes
+
+<title>MLE Tokenize</title>
+
+<div class="py-1 text-center">
+    <h2>MLE Tokenize</h2>
+</div>
+
+<hr class="my-4">
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <label class="form-label fw-semibold">Endpoint</label>
+        <select class="form-select" @onchange="OnEndpointChanged">
+            <option value="tokenized-cards" selected="@(selectedEndpoint == "tokenized-cards")">Network Token (tokenized-cards)</option>
+            <option value="tokenized-cards-mle" selected="@(selectedEndpoint == "tokenized-cards-mle")">Network Token (tokenized-cards) Request MLE applied</option>
+            <option value="tokenize" selected="@(selectedEndpoint == "tokenize")">MLE TMS Token (tokenize)</option>
+        </select>
+    </div>
+</div>
+
+<div>
+    <div class="row g-5">
+
+        @if (selectedEndpoint == "tokenized-cards" || selectedEndpoint == "tokenized-cards-mle")
+        {
+            @if (initError is not null)
+            {
+                <div class="alert alert-warning">@initError</div>
+            }
+
+            <div class="col-md-6">
+                <h5>Network Tokenized Card</h5>
+
+                <div class="mb-3">
+                    <label class="form-label">Select Card</label>
+                    <select class="form-select" @onchange="OnCardSelected" disabled="@(ntCards.Count == 0)">
+                        @foreach (var card in ntCards)
+                        {
+                            <option value="@card.NetworkTokenTestCardId">
+                                @(card.DisplayLabel ?? $"{card.CardBrand} — {card.AccountNumber} {card.ExpMonth}/{card.ExpYear}")
+                            </option>
+                        }
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Card Number</label>
+                    <input class="form-control" type="text" @bind="cardNumberInput" placeholder="Card Number" />
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-4">
+                        <label class="form-label">Exp Month</label>
+                        <input class="form-control" type="text" maxlength="2" @bind="expMonthInput" placeholder="MM" />
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">Exp Year</label>
+                        <input class="form-control" type="text" maxlength="4" @bind="expYearInput" placeholder="YYYY" />
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">CVV</label>
+                        <input class="form-control" type="text" maxlength="4" @bind="cvvInput" placeholder="CVV" />
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" @onclick="SubmitTokenizedCard" disabled="@isSubmitting">
+                    @(isSubmitting ? "Submitting…" : "Submit")
+                </button>
+            </div>
+        }
+        else
+        {
+            @if (Show)
+            {
+                <CustomerMasterComponent ButtonText="Tokenize" FormElements="FormElements" FormCustomer="b2CCustomer" ValidSubmit="SubmitTokenize"></CustomerMasterComponent>
+            }
+        }
+
+        <FormSection>
+            @if (error is not null)
+            {
+                <div class="col-6">
+                    <strong class="alert-danger">@error</strong>
+                </div>
+            }
+
+            @if ((selectedEndpoint == "tokenized-cards" || selectedEndpoint == "tokenized-cards-mle") && tokenizedCardResult is not null)
+            {
+                <h5>Network Token Result</h5>
+                <table class="table table-bordered table-sm">
+                    <tbody>
+                        <tr>
+                            <th scope="row">Token ID</th>
+                            <td>@(tokenizedCardResult["id"]?.ToString() ?? "—")</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">State</th>
+                            <td>@(tokenizedCardResult["state"]?.ToString() ?? "—")</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Network Token Number</th>
+                            <td>@(tokenizedCardResult["number"]?.ToString() ?? "—")</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Card Type</th>
+                            <td>@(tokenizedCardResult["type"]?.ToString() ?? "—")</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Payment Account Reference</th>
+                            <td>@(tokenizedCardResult["paymentAccountReference"]?.ToString() ?? "—")</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <details>
+                    <summary class="text-muted small">Raw JSON response</summary>
+                    <pre class="small bg-light p-2 mt-1 overflow-auto">@rawJson</pre>
+                </details>
+            }
+
+            @if (selectedEndpoint == "tokenize" && tokenResult is not null)
+            {
+                <h5>Token Result</h5>
+                <table class="table table-bordered table-sm">
+                    <tbody>
+                        <tr>
+                            <th scope="row">Payment Instrument ID</th>
+                            <td>@(tokenResult["tokenInformation"]?["paymentInstrument"]?["id"]?.ToString() ?? "—")</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Instrument Identifier ID</th>
+                            <td>@(tokenResult["tokenInformation"]?["instrumentIdentifier"]?["id"]?.ToString() ?? "—")</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Customer ID</th>
+                            <td>@(tokenResult["tokenInformation"]?["customer"]?["id"]?.ToString() ?? "—")</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Status</th>
+                            <td>@(tokenResult["status"]?.ToString() ?? "—")</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Transaction ID</th>
+                            <td>@(tokenResult["id"]?.ToString() ?? "—")</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <details>
+                    <summary class="text-muted small">Raw JSON response</summary>
+                    <pre class="small bg-light p-2 mt-1 overflow-auto">@rawJson</pre>
+                </details>
+            }
+        </FormSection>
+    </div>
+
+    <div class="mt-3">
+        <a href="/tokenize-transactions" class="btn btn-outline-secondary btn-sm">
+            View all tokenize transactions &rsaquo;
+        </a>
+    </div>
+
+    <footer class="my-5 pt-5 text-body-secondary text-center text-small">
+        <p class="mb-1">&copy; 2017–2024 Company Name</p>
+        <ul class="list-inline">
+            <li class="list-inline-item"><a href="#">Privacy</a></li>
+            <li class="list-inline-item"><a href="#">Terms</a></li>
+            <li class="list-inline-item"><a href="#">Support</a></li>
+        </ul>
+    </footer>
+</div>
+
+@code {
+    private string selectedEndpoint = "tokenized-cards";
+
+    // ── Tokenized-cards state ─────────────────────────────────────────────────
+    private List<NetworkTokenTestCardDto> ntCards = new();
+    private NetworkTokenTestCardDto? selectedCard;
+    private string? cardNumberInput;
+    private string? expMonthInput;
+    private string? expYearInput;
+    private string? cvvInput;
+    private bool isSubmitting;
+    private string? initError;
+    private JsonNode? tokenizedCardResult;
+
+    // ── Tokenize (MLE TMS) state ──────────────────────────────────────────────
+    private bool Show = true;
+    List<string> FormElements = new List<string> { "ShowMainForm", "ShowBilling", "ShowAccountDetails", "ShowDefaults" };
+    private B2cCustomer b2CCustomer = new();
+    private JsonNode? tokenResult;
+
+    // ── Shared ────────────────────────────────────────────────────────────────
+    private string? error;
+    private string? rawJson;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await CallMinAPIs.GetNetworkTokenTestCardsAsync();
+        if (result.Error is not null)
+        {
+            initError = $"{result.Error.Error}: {result.Error.Message}";
+        }
+        else if (result.Data is not null && result.Data.Count > 0)
+        {
+            ntCards = result.Data;
+            selectedCard = ntCards[0];
+            cardNumberInput = selectedCard.AccountNumber;
+            expMonthInput = selectedCard.ExpMonth;
+            expYearInput = selectedCard.ExpYear;
+            cvvInput = selectedCard.Cvv;
+        }
+        else
+        {
+            initError = "No NT sample cards found.";
+        }
+    }
+
+    private void OnEndpointChanged(ChangeEventArgs e)
+    {
+        selectedEndpoint = e.Value?.ToString() ?? "tokenized-cards";
+        error = null;
+        rawJson = null;
+        tokenResult = null;
+        tokenizedCardResult = null;
+    }
+
+    private void OnCardSelected(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            selectedCard = ntCards.FirstOrDefault(c => c.NetworkTokenTestCardId == id);
+            cardNumberInput = selectedCard?.AccountNumber;
+            expMonthInput = selectedCard?.ExpMonth;
+            expYearInput = selectedCard?.ExpYear;
+            cvvInput = selectedCard?.Cvv;
+        }
+    }
+
+    private async Task SubmitTokenizedCard()
+    {
+        error = null;
+        tokenizedCardResult = null;
+        rawJson = null;
+        isSubmitting = true;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(cardNumberInput))
+            {
+                error = "Please select or enter a card number.";
+                return;
+            }
+
+            var request = new TokenizedCardNetworkRequest
+            {
+                Source = "ONFILE",
+                CardNumber = cardNumberInput,
+                ExpMonth = expMonthInput,
+                ExpYear = expYearInput,
+                SecurityCode = string.IsNullOrWhiteSpace(cvvInput) ? null : cvvInput
+            };
+
+            var result = selectedEndpoint == "tokenized-cards-mle"
+                ? await CallMinAPIs.SubmitTokenizedCardMleAsync(request)
+                : await CallMinAPIs.SubmitTokenizedCardAsync(request);
+
+            if (result.Error is not null)
+            {
+                error = $"{result.Error.Error}: {result.Error.Message}";
+            }
+            else
+            {
+                tokenizedCardResult = result.ResponseJson;
+                rawJson = result.ResponseJson?.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task SubmitTokenize(B2cCustomer submittedCustomer)
+    {
+        error = null;
+        tokenResult = null;
+        rawJson = null;
+
+        try
+        {
+            var result = await CallMinAPIs.TokenizeCardAsync(submittedCustomer);
+
+            if (result.Error is not null)
+            {
+                error = $"{result.Error.Error}: {result.Error.Message}";
+            }
+            else
+            {
+                tokenResult = result.ResponseJson;
+                rawJson = result.ResponseJson?.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+        }
+    }
+}

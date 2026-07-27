@@ -1,0 +1,300 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/applepaycheckout"
+@implements IDisposable
+
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject ICartService cartService
+@inject ISessionTransactions sessionTransactions
+
+<title>Apple Pay Checkout</title>
+
+<script src="Components/Pages/ApplePay/ApplePayCheckout.razor.js"></script>
+
+@* Apple's official Apple Pay button chrome (-webkit-appearance: -apple-pay-button) is OS-rendered
+   button styling mandated by Apple's Human Interface Guidelines — it cannot be expressed with
+   Bootstrap classes, so (unlike the rest of this app's UI) it is defined here directly, exactly
+   as Apple's own integration guide recommends. See CLAUDE.md's app.css convention for the
+   sidebar's own narrow exception to "no inline/scoped CSS" for the same reason (a component that
+   Bootstrap has no equivalent for). *@
+<style>
+    apple-pay-button {
+        --apple-pay-button-width: 240px;
+        --apple-pay-button-height: 44px;
+        --apple-pay-button-border-radius: 5px;
+        --apple-pay-button-padding: 5px 0px;
+        display: inline-block;
+    }
+</style>
+
+<div class="py-1 text-center">
+    <h2>Apple Pay Checkout</h2>
+</div>
+
+<hr class="my-4">
+
+@* Same form UX as CheckoutForm.razor (CustomerMasterComponent + "Use Defaults" + editable
+   billing/cart) but at the "Base Form" tier — sample customer data + cart data only, no card
+   entry (ShowAccountDetails omitted from FormElements below). Card fields are unnecessary here:
+   the card credential comes from the Apple Pay sheet, not typed input. Full card-collecting
+   "Checkout" is Base Form + ShowAccountDetails; this page is deliberately the narrower tier.
+   Submitting this form does not authorize yet — it captures billing/cart, then reveals the Apple
+   Pay button below. *@
+<div>
+    <div class="row g-5">
+        @if (Show)
+        {
+            <CustomerMasterComponent ButtonText="Continue to Apple Pay" FormElements="HomeFormElements" FormCustomer="b2CCustomer" ValidSubmit="Submit"></CustomerMasterComponent>
+        }
+
+        <FormSection>
+            @if (error is not null)
+            {
+                <div class="col-6">
+                    <strong class="alert-danger">@error</strong>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Follow on Actions
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="applepaycheckout">New Apple Pay Checkout</a></li>
+                        <li><a class="dropdown-item" href="checkout">New Checkout</a></li>
+                    </ul>
+                </div>
+            }
+        </FormSection>
+    </div>
+
+    @if (readyForApplePay)
+    {
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <dl class="row">
+                    <dt class="col-sm-4">Billing Name</dt>
+                    <dd class="col-sm-8">@b2CCustomer.FirstName @b2CCustomer.LastName</dd>
+                    <dt class="col-sm-4">Amount</dt>
+                    <dd class="col-sm-8">@(b2CCustomer.TotalAmount ?? 0m) @b2CCustomer.Currency</dd>
+                </dl>
+
+                @if (!applePayAvailable)
+                {
+                    <div class="alert alert-warning">
+                        Apple Pay is not available in this browser/domain. Apple Pay JS only runs in
+                        Safari on an Apple-verified HTTPS domain — see the Local Testing note in the
+                        Apple Pay implementation plan.
+                    </div>
+                }
+                else
+                {
+                    <apple-pay-button id="applePayButton" buttonstyle="black" type="plain" locale="en"
+                                       @onclick="StartApplePaySession" style="cursor:pointer;"></apple-pay-button>
+                }
+
+                @if (statusMessage is not null)
+                {
+                    <p class="mt-3">@statusMessage</p>
+                }
+            </div>
+        </div>
+    }
+
+    <footer class="my-5 pt-5 text-body-secondary text-center text-small">
+        <p class="mb-1">&copy; 2017–2024 Company Name</p>
+        <ul class="list-inline">
+            <li class="list-inline-item"><a href="#">Privacy</a></li>
+            <li class="list-inline-item"><a href="#">Terms</a></li>
+            <li class="list-inline-item"><a href="#">Support</a></li>
+        </ul>
+    </footer>
+</div>
+
+@code {
+    private bool Show = true;
+    private bool readyForApplePay = false;
+
+    // "Base Form" tier — sample customer data + cart data only, no card entry (no
+    // "ShowAccountDetails"). Full card-collecting "Checkout" is this list + ShowAccountDetails.
+    List<string> HomeFormElements = new List<string> { "ShowMainForm", "ShowBilling", "ShowDefaults", "ShowAuthCapture", "ShowCart" };
+
+    private B2cCustomer b2CCustomer = new();
+    private ISessionTransactions _sessionTransactions = new SessionTransactions();
+    private SessionTransJson sessionTransJson = new();
+
+    private bool applePayAvailable = false;
+    private string? error;
+    private string? statusMessage;
+
+    private DotNetObjectReference<ApplePayCheckout>? _dotNetRef;
+
+    // CyberSource merchant/country codes for the payment sheet.
+    private const string MerchantIdentifier = "merchant.com.ahw001.applepaycheckout";
+    private const string CountryCode = "US";
+
+    protected override void OnInitialized()
+    {
+        if (cartService.Cart is not null && cartService.Cart.Count > 0)
+        {
+            b2CCustomer.Cart = cartService.Cart.ToList();
+            b2CCustomer.TotalAmount = cartService.Total;
+        }
+
+        base.OnInitialized();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+
+            try
+            {
+                applePayAvailable = await JSRuntime.InvokeAsync<bool>("applePayIsAvailable");
+            }
+            catch
+            {
+                applePayAvailable = false;
+            }
+
+            StateHasChanged();
+        }
+    }
+
+    // ValidSubmit callback from CustomerMasterComponent (same "Use Defaults" + billing/cart form
+    // as Checkout). Does not authorize yet — captures the populated customer and reveals the
+    // Apple Pay button below, exactly like Checkout reveals its own submit outcome after the form.
+    private void Submit(B2cCustomer submittedCustomer)
+    {
+        try
+        {
+            b2CCustomer = submittedCustomer;
+
+            if (b2CCustomer.TotalAmount is null or 0m && b2CCustomer.Cart is not null)
+            {
+                foreach (var item in b2CCustomer.Cart)
+                {
+                    b2CCustomer.TotalAmount = (b2CCustomer.TotalAmount ?? 0m) + item.UnitPrice;
+                }
+            }
+
+            Show = false;
+            readyForApplePay = true;
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task StartApplePaySession()
+    {
+        statusMessage = null;
+        var amount = (b2CCustomer.TotalAmount ?? 0m).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+
+        await JSRuntime.InvokeVoidAsync("beginApplePaySession", _dotNetRef,
+            amount, b2CCustomer.Currency ?? "USD", CountryCode, MerchantIdentifier, "TestCC Processor");
+    }
+
+    [JSInvokable]
+    public void OnApplePayUnavailable()
+    {
+        applePayAvailable = false;
+        StateHasChanged();
+    }
+
+    // Called from JS when ApplePaySession fires onvalidatemerchant. Routes through CallMinAPIs
+    // (per the app-wide HTTP gateway constraint) to the server's mutual-TLS proxy, which is the
+    // only place the Merchant Identity Certificate is ever used. Returns the merchant session
+    // JSON string to JS, which passes it to session.completeMerchantValidation(...); returns null
+    // on failure so JS can call session.abort() instead.
+    [JSInvokable]
+    public async Task<string?> OnMerchantValidationNeeded(string validationUrl)
+    {
+        var result = await CallMinAPIs.ValidateApplePayMerchantAsync(validationUrl);
+
+        if (!result.IsSuccess || result.Data is null)
+        {
+            statusMessage = "Merchant validation failed: " + (result.Error?.Message ?? result.Error?.Error ?? "unknown error");
+            StateHasChanged();
+            return null;
+        }
+
+        return result.Data.ToJsonString();
+    }
+
+    [JSInvokable]
+    public void OnApplePayCancelled()
+    {
+        statusMessage = "Apple Pay sheet cancelled.";
+        StateHasChanged();
+    }
+
+    // Called from JS with the raw (still-encrypted) paymentData JSON + card network string from
+    // the Apple Pay sheet's onpaymentauthorized event. Decryption happens server-side — see
+    // ApplePayDecryptor / CallForApplePayAuth on CyberSourceServer. Returns true/false to JS so it
+    // can call session.completePayment(STATUS_SUCCESS/STATUS_FAILURE) correctly.
+    [JSInvokable]
+    public async Task<bool> OnApplePayAuthorized(string paymentDataJson, string network)
+    {
+        try
+        {
+            b2CCustomer.ApplePayPaymentData = paymentDataJson;
+            b2CCustomer.ApplePayCardNetwork = network;
+
+            if (b2CCustomer.ActionTokenTypes is null)
+            {
+                b2CCustomer.ActionTokenTypes = new string[] { "paymentInstrument" };
+            }
+
+            var options = new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(b2CCustomer, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, CcTransactionTypes.APPLE_PAY_AUTH);
+
+            if (sessionResponse is null || sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse, "Apple Pay authorization failed.");
+                return false;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse);
+            cartService.DeleteAll();
+            Navigation.NavigateTo("/processauth");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            HandleErrorAndRedirect(null, "Error: " + ex.Message);
+            return false;
+        }
+    }
+
+    private void HandleErrorAndRedirect(SessionTransJson? response, string fallbackErrorMessage)
+    {
+        Show = false;
+        readyForApplePay = false;
+        StateHasChanged();
+
+        var errorMessage = response?.error ?? fallbackErrorMessage;
+        var errorJsonState = response?.JsonTransactionStateValues ?? TransactionStateValues.Error;
+
+        var errorResponse = response ?? new SessionTransJson
+        {
+            JsonTransactionStateValues = errorJsonState,
+            error = errorMessage,
+            TransactionStatus = "error"
+        };
+
+        sessionTransactions.AddTrans(errorResponse);
+        Navigation.NavigateTo("/errorhandler");
+    }
+
+    public void Dispose()
+    {
+        _dotNetRef?.Dispose();
+    }
+}

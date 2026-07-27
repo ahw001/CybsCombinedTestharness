@@ -1,0 +1,234 @@
+﻿@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/capture"
+
+@inject IHttpClientFactory httpClientFactory
+@inject ICartService cartService
+@inject ITransactionJson transactionJson
+@inject NavigationManager Navigation
+
+@inject ICustomersScoped customersScoped
+@inject ISessionTransactions sessionTransactions
+
+<h1>@transactionPageTitle</h1>
+
+<div class="container">
+    <div class="row">
+        <div class="col-md-12 mb-2">
+                <div class="card">
+                    <div class="card-body">
+                        @if (showFieldCard)
+                        {
+                            <div class="card-title"><h3>Authorization Data:</h3></div>
+                            <div class="row row-cols-2">
+                                <div class="col border">
+                                    <div>
+                                        <label>Transaction Type-Status: </label>
+                                    </div>
+                                    <div>
+                                        <label>Transaction ID: </label>
+                                    </div>
+                                    <div>
+                                        <label>Authorization Amount: </label>
+                                    </div>
+                                </div>
+                                <div class="col border border-secondary">
+                                    <div>@sessionTransJson!.TransactionType</div>
+                                    <div>@sessionTransJson.TransactionId</div>
+                                    <div>
+                                        <span>$@sessionTransJson.TransactionAmount</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-footer">
+                                <button class="btn btn-primary" type="button" @onclick="SubmitForCapture">
+                                    SUBMIT FOR CAPTURE
+                                </button>
+                            </div>
+                        }
+                        @if (showResultCard)
+                        {
+                            <div class="card">
+                                <div class="card-title"><h3>Capture Data:</h3></div>
+                                <div class="card-body">
+                                    @if (propertyValues != null && propertyValues.Count > 0)
+                                    {
+                                        <ul>
+                                            @foreach (var propertyValue in propertyValues)
+                                            {
+                                                <li>@propertyValue</li>
+                                            }
+                                        </ul>
+                                    }
+                                    else
+                                    {
+                                        <p>@error</p>
+                                    }
+                                </div>
+                                <div class="card-footer">
+                                    <div class="dropdown">
+                                        <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                            Follow on Actions
+                                        </button>
+                                        <ul class="dropdown-menu">
+                                            <li><a class="dropdown-item" href="void">Void</a></li>
+                                            <li><a class="dropdown-item" href="checkout">New Checkout</a></li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+
+
+
+
+@code {
+
+    private string transactionPageTitle = "Capture Processing";
+
+    private string error = string.Empty;
+
+    private ISessionTransactions _sessionTransactions = new SessionTransactions();
+    private SessionTransJson? sessionTransJson = new SessionTransJson();
+    private FollowOnTransResponse? followOnTransResponse = new FollowOnTransResponse();
+
+    private static List<BasicErrorInfo> basicErrorInfos = new List<BasicErrorInfo>();
+
+    private CcTransactionTypes currentTransaction;
+
+    private bool showFieldCard = false;
+    private bool showResultCard = false;
+    private bool containsError = false;
+
+    string statusNode = string.Empty;
+    string id = string.Empty;
+    string orderId = string.Empty;
+
+    private List<string> propertyValues = new List<string>();
+
+    protected override void OnInitialized()
+    {
+        _sessionTransactions = sessionTransactions;
+
+        sessionTransJson = _sessionTransactions.Transactions.LastOrDefault()!;
+
+        if (sessionTransJson is not null)
+        {
+            showFieldCard = true;
+        }
+
+        base.OnInitialized();
+    }
+
+    private async Task SubmitForCapture()
+    {
+        try
+        {
+            sessionTransJson = _sessionTransactions.Transactions.LastOrDefault()!;
+            sessionTransJson.CurrentTransactionType = CcTransactionTypes.CAPTURE;
+            sessionTransJson.FollowOnTransaction = CcTransactionTypes.CAPTURE;
+            currentTransaction = CcTransactionTypes.CAPTURE;
+
+            propertyValues = new();
+
+            // Serialize the object into a string for submission
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(sessionTransJson, options);
+
+            // POST FOR FOLLOW ON TRANSACTION *******
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString, 
+                _sessionTransactions, currentTransaction!);
+
+            // POST FOR FOLLOW ON TRANSACTION *******
+
+            var jsonNode = sessionResponse.TransactionJson;
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse is not null && sessionResponse.TransactionJson is not null && sessionResponse.TransactionStatus != "error")
+            {
+                basicErrorInfos = JsonErrorExtractor.ExtractErrorObjects(sessionResponse.TransactionJson.ToString());
+
+                bool containsError = basicErrorInfos.Any(e =>
+                    AppErrorConfig.ErrorKeywords.Any(k =>
+                        $"{e.Status} {e.Reason} {e.Message} {e.Action}"
+                            .ToLowerInvariant()
+                            .Contains(k.ToLowerInvariant())
+                    )
+                );
+
+            }
+
+            if (containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse != null && containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+            else
+            {
+                followOnTransResponse = JsonSerializer.Deserialize<FollowOnTransResponse>(jsonNode!.ToString()!);
+
+                propertyValues = PropertiesProcessor.GetProperties(followOnTransResponse!);
+
+                showFieldCard = false;
+                showResultCard = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    private void HandleErrorAndRedirect(SessionTransJson? response, string fallbackErrorMessage = "Unknown error")
+    {
+        StateHasChanged(); // optional UI refresh
+
+        var errorMessage = response?.error ?? fallbackErrorMessage;
+        var errorJsonState = response?.JsonTransactionStateValues ?? TransactionStateValues.Error;
+
+        var errorResponse = response ?? new SessionTransJson
+        {
+            JsonTransactionStateValues = errorJsonState,
+            error = errorMessage,
+            TransactionStatus = "error"
+        };
+
+        sessionTransactions.AddTrans(errorResponse);
+        Navigation.NavigateTo("/errorhandler");
+    }
+}
+
+
+    
+    
+

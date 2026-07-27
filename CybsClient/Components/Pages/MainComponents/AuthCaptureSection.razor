@@ -1,0 +1,15 @@
+<hr class="my-4">
+
+<div class="form-check border">
+    <InputCheckbox @bind-Value="Customer!.ShippingSameAsBilling" class="form-check-input" id="same-address" />
+    <label class="form-check-label" for="same-address">Shipping address is the same as my billing address</label>
+</div>
+
+<div class="form-check border">
+    <InputCheckbox @bind-Value="Customer!.SaveFormData" class="form-check-input" id="save-info" />
+    <label class="form-check-label" for="save-info">Save this information for next time</label>
+</div>
+
+@code {
+    [Parameter] public B2cCustomer? Customer { get; set; }
+}

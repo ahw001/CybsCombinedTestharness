@@ -1,0 +1,190 @@
+@using CybsClient.Services.DIServices
+@inject ICartService CartService
+@implements IDisposable
+
+<nav class="navbar navbar-dark bg-dark sticky-top shadow-sm">
+    <div class="container-fluid">
+        <button class="navbar-toggler border-0 me-2" type="button"
+                data-bs-toggle="offcanvas" data-bs-target="#mainNavOffcanvas"
+                aria-controls="mainNavOffcanvas" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <a class="navbar-brand fw-semibold" href="/">CyberStore</a>
+        <div class="ms-auto d-flex align-items-center gap-2">
+            <a class="btn btn-outline-light btn-sm" href="store">
+                <i class="bi bi-shop me-1"></i> Store
+            </a>
+            <a class="btn btn-outline-light btn-sm position-relative" href="store/cart" aria-label="Cart">
+                <i class="bi bi-cart3"></i>
+                @if (CartService.Cart.Count > 0)
+                {
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                        @CartService.Cart.Count
+                        <span class="visually-hidden">items in cart</span>
+                    </span>
+                }
+            </a>
+        </div>
+    </div>
+</nav>
+
+<div class="offcanvas offcanvas-start" tabindex="-1" id="mainNavOffcanvas"
+     aria-labelledby="mainNavOffcanvasLabel">
+    <div class="offcanvas-header border-bottom">
+        <h5 class="offcanvas-title fw-semibold" id="mainNavOffcanvasLabel">
+            <i class="bi bi-grid-fill me-2"></i>Navigation
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas"
+                aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body p-0">
+        <div class="list-group list-group-flush">
+            <NavLink class="list-group-item list-group-item-action border-0 py-2 px-3"
+                     href="/" Match="NavLinkMatch.All">
+                <i class="bi bi-house-door-fill me-2"></i> Home
+            </NavLink>
+        </div>
+
+        <div class="accordion accordion-flush" id="navAccordion">
+
+            <div class="accordion-item border-0">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed py-2 px-3" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#navGroupStore"
+                            aria-expanded="false" aria-controls="navGroupStore">
+                        <i class="bi bi-shop me-2"></i> Store
+                    </button>
+                </h2>
+                <div id="navGroupStore" class="accordion-collapse collapse"
+                     data-bs-parent="#navAccordion">
+                    <nav class="nav flex-column ms-3 border-start">
+                        <NavLink class="nav-link py-1 ps-3" href="store" Match="NavLinkMatch.All">Store Front</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="store/productpage">Products</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="store/cart">Cart</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="store/checkout-config">Checkout Settings</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="store/product-manager">Product Manager</NavLink>
+                    </nav>
+                </div>
+            </div>
+
+            <div class="accordion-item border-0">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed py-2 px-3" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#navGroupPayments"
+                            aria-expanded="false" aria-controls="navGroupPayments">
+                        <i class="bi bi-credit-card me-2"></i> Checkout &amp; Payments
+                    </button>
+                </h2>
+                <div id="navGroupPayments" class="accordion-collapse collapse"
+                     data-bs-parent="#navAccordion">
+                    <nav class="nav flex-column ms-3 border-start">
+                        <NavLink class="nav-link py-1 ps-3" href="checkout" Match="NavLinkMatch.All">Checkout</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="applepaycheckout">Apple Pay</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="unifiedcheckout">Unified Checkout</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="flexcheckout">Flex Checkout</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="flexconsolidatedcheckout">Flex Checkout (Consolidated)</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="sacheckout">SA Checkout</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="standalonecredit">Stand Alone Credit</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="refundform">Refund with Reference</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="paybylink/create">Pay by Link — Create</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="paybylink/list">Pay by Link — All Links</NavLink>
+                    </nav>
+                </div>
+            </div>
+
+            <div class="accordion-item border-0">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed py-2 px-3" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#navGroupTransfers"
+                            aria-expanded="false" aria-controls="navGroupTransfers">
+                        <i class="bi bi-arrow-left-right me-2"></i> Transfers
+                    </button>
+                </h2>
+                <div id="navGroupTransfers" class="accordion-collapse collapse"
+                     data-bs-parent="#navAccordion">
+                    <nav class="nav flex-column ms-3 border-start">
+                        <NavLink class="nav-link py-1 ps-3" href="aftprocessor">AFT Transaction</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="afttokenprocessor">AFT Token Transaction</NavLink>
+                    </nav>
+                </div>
+            </div>
+
+            <div class="accordion-item border-0">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed py-2 px-3" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#navGroupPOS"
+                            aria-expanded="false" aria-controls="navGroupPOS">
+                        <i class="bi bi-terminal me-2"></i> Point of Sale
+                    </button>
+                </h2>
+                <div id="navGroupPOS" class="accordion-collapse collapse"
+                     data-bs-parent="#navAccordion">
+                    <nav class="nav flex-column ms-3 border-start">
+                        <NavLink class="nav-link py-1 ps-3" href="cloudposbearer">Cloud POS</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="semiintpossetup">Semi Int POS Setup</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="semiintpossale">Semi Int POS Sale</NavLink>
+                    </nav>
+                </div>
+            </div>
+
+            <div class="accordion-item border-0">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed py-2 px-3" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#navGroupAdmin"
+                            aria-expanded="false" aria-controls="navGroupAdmin">
+                        <i class="bi bi-gear me-2"></i> Administration
+                    </button>
+                </h2>
+                <div id="navGroupAdmin" class="accordion-collapse collapse"
+                     data-bs-parent="#navAccordion">
+                    <nav class="nav flex-column ms-3 border-start">
+                        <NavLink class="nav-link py-1 ps-3" href="simplejson">Simple JSON</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="tokencreate">Create Token</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="tokenize">Tokenize Card (MLE)</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="tokenize-transactions">Tokenize Transactions</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="b2ccustomers">Get Customers</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="invoicecreate">Create Invoice</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="pasetupform">PA Setup</NavLink>
+                    </nav>
+                </div>
+            </div>
+
+            <div class="accordion-item border-0">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed py-2 px-3" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#navGroupBoarding"
+                            aria-expanded="false" aria-controls="navGroupBoarding">
+                        <i class="bi bi-person-check me-2"></i> Boarding Management
+                    </button>
+                </h2>
+                <div id="navGroupBoarding" class="accordion-collapse collapse"
+                     data-bs-parent="#navAccordion">
+                    <nav class="nav flex-column ms-3 border-start">
+                        <NavLink class="nav-link py-1 ps-3" href="boarding/dashboard">Boarding Dashboard</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="portfolioboarding">Portfolio Boarding</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="orgboarding">Merchant Org Boarding</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="transactingboarding">Transacting Org Boarding</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="cardprocessingconfig">Configure Card Processing</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="productboarding">Product Boarding</NavLink>
+                        <NavLink class="nav-link py-1 ps-3" href="merchantboarding">Legacy Merchant Boarding</NavLink>
+                    </nav>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        CartService.OnChange += OnCartChanged;
+    }
+
+    private void OnCartChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        CartService.OnChange -= OnCartChanged;
+    }
+}

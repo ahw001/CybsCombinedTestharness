@@ -1,0 +1,367 @@
+@page "/store/checkout-config"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using CybsClient.Services.DTOs
+@using CybsClient.Services.Utilities
+@inject IUnifiedCheckoutSettingsService UcSettings
+@inject NavigationManager Navigation
+
+<PageTitle>Unified Checkout — Store Settings</PageTitle>
+
+<div class="container py-4">
+    <h2 class="fw-bold mb-1">Unified Checkout — Store Settings</h2>
+    <p class="text-muted">
+        Pick a saved configuration to drive the store's Unified Checkout flow
+        (<a href="/store/checkout">/store/checkout</a>), or build and save a new one.
+        This is a soft entry point — the store works normally without visiting this page;
+        with nothing selected, <code>/store/checkout</code> falls back to a default Card-only
+        configuration.
+    </p>
+
+    @if (error is not null)
+    {
+        <div class="alert alert-danger">@error</div>
+    }
+    @if (statusMessage is not null)
+    {
+        <div class="alert alert-success">@statusMessage</div>
+    }
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Saved Configurations</h5>
+            @if (savedConfigs.Count == 0)
+            {
+                <p class="text-muted mb-0">No configurations saved yet — build one below.</p>
+            }
+            else
+            {
+                <div class="row g-2 align-items-end">
+                    <div class="col-auto">
+                        <label class="form-label small">Configuration</label>
+                        <select class="form-select" @bind="selectedConfigId">
+                            @foreach (var c in savedConfigs)
+                            {
+                                <option value="@c.UnifiedCheckoutConfigurationId">@c.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-primary" @onclick="UseSelectedConfig">Use This Config</button>
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-outline-secondary" @onclick="EditSelectedConfig">Edit</button>
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-outline-danger" @onclick="DeleteSelectedConfig">Delete</button>
+                    </div>
+                </div>
+            }
+            @if (UcSettings.SelectedConfig is not null)
+            {
+                <div class="alert alert-info mt-3 mb-0">
+                    Currently active for the store checkout: <strong>@UcSettings.SelectedConfig.Name</strong>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">@(editing.UnifiedCheckoutConfigurationId == 0 ? "New Configuration" : $"Editing: {editing.Name}")</h5>
+
+            <EditForm Model="editing" OnValidSubmit="SaveConfig">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Name</label>
+                        <input class="form-control" @bind="editing.Name" required />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Description</label>
+                        <input class="form-control" @bind="editing.Description" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label">Country</label>
+                        <input class="form-control" @bind="editing.Country" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Locale</label>
+                        <input class="form-control" @bind="editing.Locale" />
+                    </div>
+
+                    <div class="col-12"><hr /></div>
+
+                    <div class="col-md-4">
+                        <label class="form-label d-block">Allowed Payment Types</label>
+                        @foreach (var pt in AllPaymentTypes)
+                        {
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="@("pt_" + pt)"
+                                       checked="@selectedPaymentTypes.Contains(pt)"
+                                       @onchange="e => ToggleSetMember(selectedPaymentTypes, pt, e)" />
+                                <label class="form-check-label" for="@("pt_" + pt)">@pt</label>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label d-block">Allowed Card Networks</label>
+                        @foreach (var net in AllCardNetworks)
+                        {
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="@("net_" + net)"
+                                       checked="@selectedCardNetworks.Contains(net)"
+                                       @onchange="e => ToggleSetMember(selectedCardNetworks, net, e)" />
+                                <label class="form-check-label" for="@("net_" + net)">@net</label>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Button Type</label>
+                        <select class="form-select" @bind="editing.ButtonType">
+                            <option value="">(default — "Checkout with card")</option>
+                            <option value="PAY">PAY</option>
+                            <option value="CARD_PAYMENT">CARD_PAYMENT</option>
+                            <option value="CHECKOUT_AND_CONTINUE">CHECKOUT_AND_CONTINUE</option>
+                            <option value="DEBIT_CREDIT">DEBIT_CREDIT</option>
+                            <option value="DONATE">DONATE</option>
+                            <option value="PAY_WITH_CARD">PAY_WITH_CARD</option>
+                            <option value="SUBSCRIBE_WITH_CARD">SUBSCRIBE_WITH_CARD</option>
+                            <option value="ADD_CARD">ADD_CARD</option>
+                        </select>
+
+                        <label class="form-label mt-3">Billing Type</label>
+                        <select class="form-select" @bind="editing.BillingType">
+                            <option value="FULL">FULL — collect full billing address</option>
+                            <option value="PARTIAL">PARTIAL — postal code + country only</option>
+                            <option value="NONE">NONE — no billing fields in UC UI</option>
+                        </select>
+                    </div>
+
+                    <div class="col-12"><hr /></div>
+
+                    <div class="col-md-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="reqShip" @bind="editing.RequestShipping" />
+                        <label class="form-check-label" for="reqShip">Request Shipping</label>
+                    </div>
+                    <div class="col-md-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="reqEmail" @bind="editing.RequestEmail" />
+                        <label class="form-check-label" for="reqEmail">Request Email</label>
+                    </div>
+                    <div class="col-md-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="reqPhone" @bind="editing.RequestPhone" />
+                        <label class="form-check-label" for="reqPhone">Request Phone</label>
+                    </div>
+                    <div class="col-md-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="showIcons" @bind="editing.ShowAcceptedNetworkIcons" />
+                        <label class="form-check-label" for="showIcons">Show Accepted Network Icons</label>
+                    </div>
+                    <div class="col-md-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="showConfirm" @bind="editing.ShowConfirmationStep" />
+                        <label class="form-check-label" for="showConfirm">Show Confirmation Step</label>
+                    </div>
+                    <div class="col-md-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="saveCreds" @bind="editing.RequestSaveCredentials" />
+                        <label class="form-check-label" for="saveCreds">Request Save Credentials</label>
+                    </div>
+
+                    <div class="col-12"><hr /></div>
+                    <div class="col-12">
+                        <p class="text-muted small mb-2">
+                            The following are reserved for later execution goals (TMS save-card, 3DS, Decision Manager) —
+                            they are saved with the configuration but not yet wired into the capture context.
+                        </p>
+                    </div>
+
+                    <div class="col-md-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="enableTms" @bind="editing.EnableTms" />
+                        <label class="form-check-label" for="enableTms">Enable TMS (future)</label>
+                    </div>
+                    <div class="col-md-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="enable3ds" @bind="editing.Enable3ds" />
+                        <label class="form-check-label" for="enable3ds">Enable 3DS (future)</label>
+                    </div>
+                    <div class="col-md-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="enableDm" @bind="editing.EnableDecisionManager" />
+                        <label class="form-check-label" for="enableDm">Enable Decision Manager (future)</label>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Complete Mandate Type (future)</label>
+                        <select class="form-select" @bind="editing.CompleteMandateType">
+                            <option value="">(none)</option>
+                            <option value="AUTH">AUTH</option>
+                            <option value="CAPTURE">CAPTURE</option>
+                            <option value="PREFER_AUTH">PREFER_AUTH</option>
+                        </select>
+                    </div>
+
+                    <div class="col-12 mt-3">
+                        <button type="submit" class="btn btn-success">Save Configuration</button>
+                        <button type="button" class="btn btn-outline-secondary ms-2" @onclick="ResetForm">New / Clear</button>
+                    </div>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    private static readonly string[] AllPaymentTypes = { "PANENTRY", "CHECK" };
+    private static readonly string[] AllCardNetworks = { "VISA", "MASTERCARD", "AMEX", "DISCOVER", "JCB", "DINERSCLUB" };
+
+    private List<UnifiedCheckoutConfigurationDto> savedConfigs = new();
+    private UnifiedCheckoutConfigurationDto editing = NewDefaultConfig();
+    private int selectedConfigId;
+    private string? error;
+    private string? statusMessage;
+
+    private HashSet<string> selectedPaymentTypes = new(AllPaymentTypes.Where(t => t == "PANENTRY"));
+    private HashSet<string> selectedCardNetworks = new(AllCardNetworks);
+
+    private static UnifiedCheckoutConfigurationDto NewDefaultConfig() => new()
+    {
+        Name = string.Empty,
+        Country = "US",
+        Locale = "en_US",
+        BillingType = "FULL",
+        AllowedPaymentTypes = "PANENTRY",
+        AllowedCardNetworks = string.Join(',', AllCardNetworks),
+        RequestShipping = true,
+        RequestEmail = true,
+        RequestPhone = true,
+        ShowAcceptedNetworkIcons = true,
+        ShowConfirmationStep = true
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConfigs();
+    }
+
+    private async Task LoadConfigs()
+    {
+        var result = await CallMinAPIs.GetUnifiedCheckoutConfigsAsync();
+        if (!result.IsSuccess)
+        {
+            error = result.Error?.Message ?? "Failed to load Unified Checkout configurations.";
+            return;
+        }
+        savedConfigs = result.Data ?? new();
+        if (savedConfigs.Count > 0 && selectedConfigId == 0)
+        {
+            selectedConfigId = savedConfigs[0].UnifiedCheckoutConfigurationId;
+        }
+    }
+
+    private void ToggleSetMember(HashSet<string> set, string value, ChangeEventArgs e)
+    {
+        bool isChecked = e.Value is bool b && b;
+        if (isChecked) set.Add(value); else set.Remove(value);
+    }
+
+    private void UseSelectedConfig()
+    {
+        var config = savedConfigs.FirstOrDefault(c => c.UnifiedCheckoutConfigurationId == selectedConfigId);
+        if (config is null)
+        {
+            error = "Select a configuration first.";
+            return;
+        }
+        UcSettings.SetConfig(config);
+        error = null;
+        Navigation.NavigateTo("/store/checkout");
+    }
+
+    private void EditSelectedConfig()
+    {
+        var config = savedConfigs.FirstOrDefault(c => c.UnifiedCheckoutConfigurationId == selectedConfigId);
+        if (config is null) return;
+
+        editing = new UnifiedCheckoutConfigurationDto
+        {
+            UnifiedCheckoutConfigurationId = config.UnifiedCheckoutConfigurationId,
+            Name = config.Name,
+            Description = config.Description,
+            AllowedPaymentTypes = config.AllowedPaymentTypes,
+            AllowedCardNetworks = config.AllowedCardNetworks,
+            Country = config.Country,
+            Locale = config.Locale,
+            ButtonType = config.ButtonType,
+            BillingType = config.BillingType,
+            RequestShipping = config.RequestShipping,
+            RequestEmail = config.RequestEmail,
+            RequestPhone = config.RequestPhone,
+            RequestSaveCredentials = config.RequestSaveCredentials,
+            ShowConfirmationStep = config.ShowConfirmationStep,
+            ShowAcceptedNetworkIcons = config.ShowAcceptedNetworkIcons,
+            CompleteMandateType = config.CompleteMandateType,
+            EnableTms = config.EnableTms,
+            TmsTokenTypes = config.TmsTokenTypes,
+            Enable3ds = config.Enable3ds,
+            EnableDecisionManager = config.EnableDecisionManager
+        };
+
+        selectedPaymentTypes = SplitCsv(config.AllowedPaymentTypes);
+        selectedCardNetworks = SplitCsv(config.AllowedCardNetworks);
+        statusMessage = null;
+        error = null;
+    }
+
+    private async Task DeleteSelectedConfig()
+    {
+        if (selectedConfigId == 0) return;
+        var result = await CallMinAPIs.DeleteUnifiedCheckoutConfigAsync(selectedConfigId);
+        if (!result.IsSuccess)
+        {
+            error = result.Error?.Message ?? "Failed to delete configuration.";
+            return;
+        }
+        statusMessage = "Configuration deleted.";
+        selectedConfigId = 0;
+        if (UcSettings.SelectedConfig?.UnifiedCheckoutConfigurationId == selectedConfigId)
+        {
+            UcSettings.SetConfig(null);
+        }
+        await LoadConfigs();
+    }
+
+    private void ResetForm()
+    {
+        editing = NewDefaultConfig();
+        selectedPaymentTypes = new(new[] { "PANENTRY" });
+        selectedCardNetworks = new(AllCardNetworks);
+        statusMessage = null;
+        error = null;
+    }
+
+    private async Task SaveConfig()
+    {
+        if (string.IsNullOrWhiteSpace(editing.Name))
+        {
+            error = "Name is required.";
+            return;
+        }
+
+        editing.AllowedPaymentTypes = string.Join(',', selectedPaymentTypes);
+        editing.AllowedCardNetworks = string.Join(',', selectedCardNetworks);
+
+        var result = await CallMinAPIs.SaveUnifiedCheckoutConfigAsync(editing);
+        if (!result.IsSuccess || result.Data is null)
+        {
+            error = result.Error?.Message ?? "Failed to save configuration.";
+            return;
+        }
+
+        statusMessage = $"Saved \"{result.Data.Name}\".";
+        error = null;
+        selectedConfigId = result.Data.UnifiedCheckoutConfigurationId;
+        await LoadConfigs();
+        EditSelectedConfig();
+    }
+
+    private static HashSet<string> SplitCsv(string? csv) =>
+        string.IsNullOrWhiteSpace(csv)
+            ? new HashSet<string>()
+            : new HashSet<string>(csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+}

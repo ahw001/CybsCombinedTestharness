@@ -1,0 +1,21 @@
+<div class="top-banner">
+    <div class="banner-content">
+        <div class="banner-titles">
+            <p class="banner-subtitle">Pro.Beyond.</p>
+            <p class="banner-headline">
+                MobileFirst <span class="banner-headline-bold">Pro</span>
+            </p>
+        </div>
+        <p class="banner-description">Created to change everything for the better. For everyone</p>
+        <a class="banner-button" href="@ShopUrl">Shop Now</a>
+    </div>
+    <div class="banner-image-container">
+        <img class="banner-image" src="@ImageUrl" alt="@ImageAlt" />
+    </div>
+</div>
+
+@code {
+    [Parameter] public string ShopUrl { get; set; } = "#";
+    [Parameter] public string ImageUrl { get; set; } = "";
+    [Parameter] public string ImageAlt { get; set; } = "Featured product";
+}

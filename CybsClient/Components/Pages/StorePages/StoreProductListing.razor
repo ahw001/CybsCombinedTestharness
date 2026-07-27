@@ -1,0 +1,272 @@
+@page "/store/productpage"
+@page "/store/category/{CategorySlug}"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using CybsClient.Services.DIServices
+@using CybsClient.Model.DBQueries
+@inject IElectronicProductService ProductService
+@inject ICartService CartService
+
+<PageTitle>@_pageTitle – CyberStore</PageTitle>
+
+<StoreNavBar />
+
+<!-- Listing header -->
+<div class="container-fluid py-3 bg-light border-bottom">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item">
+                    <a href="/store" class="text-muted text-decoration-none">Home</a>
+                </li>
+                <li class="breadcrumb-item active">@_pageTitle</li>
+            </ol>
+        </nav>
+        <h1 class="h2 fw-light mt-2 mb-0">@_pageTitle</h1>
+    </div>
+</div>
+
+<!-- Main layout: sidebar + grid -->
+<div class="container py-4">
+    <div class="row g-4">
+
+        <!-- Filters sidebar -->
+        <div class="col-lg-3">
+            <StoreFiltersSidebar FilterGroups="_filterGroups" OnFiltersChanged="ApplyFilters" />
+        </div>
+
+        <!-- Products area -->
+        <div class="col-lg-9">
+            <!-- Toolbar -->
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <span class="text-muted small">@TotalCount products found</span>
+                <div class="d-flex align-items-center gap-2">
+                    <label for="sort-select" class="small text-nowrap">Sort by:</label>
+                    <select id="sort-select" class="form-select form-select-sm" style="width: auto;"
+                            @onchange="OnSortChanged">
+                        <option value="popular">Most popular</option>
+                        <option value="price-asc">Price: Low to High</option>
+                        <option value="price-desc">Price: High to Low</option>
+                        <option value="newest">Newest first</option>
+                    </select>
+                </div>
+            </div>
+
+            @if (_loading)
+            {
+                <div class="d-flex justify-content-center py-5">
+                    <div class="spinner-border text-dark" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            }
+            else if (_error is not null)
+            {
+                <div class="alert alert-danger">@_error</div>
+            }
+            else
+            {
+                <!-- Phones row -->
+                <h5 id="phones" class="fw-semibold mb-3">Phones</h5>
+                <div class="row row-cols-1 row-cols-sm-2 row-cols-xl-3 g-4 mb-5">
+                    @foreach (var product in _filteredPhones)
+                    {
+                        <div class="col">
+                            <StoreProductCard Product="product"
+                                              OnAddToCart="HandleAddToCart"
+                                              OnWishlistToggle="HandleWishlist" />
+                        </div>
+                    }
+                </div>
+
+                <!-- Laptops row -->
+                <h5 id="laptops" class="fw-semibold mb-3">Laptops</h5>
+                <div class="row row-cols-1 row-cols-sm-2 row-cols-xl-3 g-4 mb-5">
+                    @foreach (var product in _filteredLaptops)
+                    {
+                        <div class="col">
+                            <StoreProductCard Product="product"
+                                              OnAddToCart="HandleAddToCart"
+                                              OnWishlistToggle="HandleWishlist" />
+                        </div>
+                    }
+                </div>
+
+                <!-- Tablets row -->
+                <h5 id="tablets" class="fw-semibold mb-3">Tablets</h5>
+                <div class="row row-cols-1 row-cols-sm-2 row-cols-xl-3 g-4 mb-4">
+                    @foreach (var product in _filteredTablets)
+                    {
+                        <div class="col">
+                            <StoreProductCard Product="product"
+                                              OnAddToCart="HandleAddToCart"
+                                              OnWishlistToggle="HandleWishlist" />
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<StoreFooter />
+
+@code {
+    [Parameter] public string? CategorySlug { get; set; }
+
+    private string _pageTitle = "Products";
+    private string _sortOrder = "popular";
+    private bool _loading = true;
+    private string? _error;
+
+    private List<Product> _phoneProducts  = new();
+    private List<Product> _laptopProducts = new();
+    private List<Product> _tabletProducts = new();
+
+    private List<Product> _filteredPhones  = new();
+    private List<Product> _filteredLaptops = new();
+    private List<Product> _filteredTablets = new();
+
+    private int TotalCount =>
+        _filteredPhones.Count + _filteredLaptops.Count + _filteredTablets.Count;
+
+    private List<FilterGroup> _filterGroups = new()
+    {
+        new FilterGroup
+        {
+            Name = "Brand",
+            IsOpen = true,
+            HasSearch = true,
+            Options = new List<FilterOption>
+            {
+                new() { Label = "MobileFirst", Count = 110, IsChecked = true },
+                new() { Label = "Samsung",     Count = 125 },
+                new() { Label = "BXL" },
+                new() { Label = "Poco",        Count = 44 },
+                new() { Label = "OPPO",        Count = 36 },
+                new() { Label = "Honor",       Count = 10 },
+                new() { Label = "Motorola",    Count = 34 },
+                new() { Label = "Nokia",       Count = 22 },
+                new() { Label = "Realme",      Count = 35 },
+            }
+        },
+        new FilterGroup { Name = "Battery capacity" },
+        new FilterGroup { Name = "Screen type" },
+        new FilterGroup { Name = "Screen Diagonal" },
+        new FilterGroup { Name = "Protection class" },
+        new FilterGroup { Name = "Built-in memory" },
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _pageTitle = CategorySlug switch
+        {
+            "phones"  => "Phones",
+            "laptops" => "Laptops",
+            "gaming"  => "Gaming",
+            _         => "Products",
+        };
+
+        try
+        {
+            var phoneTask  = ProductService.GetByKeywordAsync("_phone_");
+            var laptopTask = ProductService.GetByKeywordAsync("lexbook");
+            var tabletTask = ProductService.GetByKeywordAsync("tab");
+            await Task.WhenAll(phoneTask, laptopTask, tabletTask);
+
+            _phoneProducts  = phoneTask.Result.Take(3).Select(MapToProduct).ToList();
+            _laptopProducts = laptopTask.Result.Take(3).Select(MapToProduct).ToList();
+            _tabletProducts = tabletTask.Result.Take(3).Select(MapToProduct).ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load products: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+
+        ApplyFilters();
+    }
+
+    private static Product MapToProduct(ElectronicProduct ep) => new()
+    {
+        Id       = ep.ElectronicProductId,
+        Name     = ep.ProductLabel ?? ep.ProductName,
+        Sku      = ep.ProductSku ?? "",
+        Brand    = ep.Brand ?? ExtractBrand(ep.ProductName),
+        Price    = ep.UnitPrice ?? 0,
+        ImageUrl = GetImageUrl(ep.Picture),
+    };
+
+    // Product names follow the convention "<brand>_<keyword>_..." so the first
+    // underscore-delimited segment is the brand.
+    private static string ExtractBrand(string productName)
+    {
+        var firstUnderscore = productName.IndexOf('_');
+        return firstUnderscore > 0
+            ? char.ToUpper(productName[0]) + productName[1..firstUnderscore]
+            : productName;
+    }
+
+    private static string GetImageUrl(string? picture)
+    {
+        if (string.IsNullOrWhiteSpace(picture))
+            return "";
+        if (picture.TrimStart().StartsWith('<'))
+        {
+            var base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(picture));
+            return $"data:image/svg+xml;base64,{base64}";
+        }
+        return picture;
+    }
+
+    private void ApplyFilters()
+    {
+        var checkedBrands = _filterGroups
+            .First(g => g.Name == "Brand").Options
+            .Where(o => o.IsChecked)
+            .Select(o => o.Label)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        _filteredPhones  = checkedBrands.Count == 0 ? _phoneProducts.ToList()
+            : _phoneProducts.Where(p => checkedBrands.Contains(p.Brand)).ToList();
+        _filteredLaptops = checkedBrands.Count == 0 ? _laptopProducts.ToList()
+            : _laptopProducts.Where(p => checkedBrands.Contains(p.Brand)).ToList();
+        _filteredTablets = checkedBrands.Count == 0 ? _tabletProducts.ToList()
+            : _tabletProducts.Where(p => checkedBrands.Contains(p.Brand)).ToList();
+
+        _filteredPhones  = ApplySort(_filteredPhones);
+        _filteredLaptops = ApplySort(_filteredLaptops);
+        _filteredTablets = ApplySort(_filteredTablets);
+
+        StateHasChanged();
+    }
+
+    private List<Product> ApplySort(List<Product> list) => _sortOrder switch
+    {
+        "price-asc"  => list.OrderBy(p => p.Price).ToList(),
+        "price-desc" => list.OrderByDescending(p => p.Price).ToList(),
+        _            => list
+    };
+
+    private void OnSortChanged(ChangeEventArgs e)
+    {
+        _sortOrder = e.Value?.ToString() ?? "popular";
+        ApplyFilters();
+    }
+
+    private void HandleAddToCart(Product product)
+    {
+        var dbProduct = new DBProduct
+        {
+            ProductId   = product.Id,
+            ProductName = product.Name,
+            UnitPrice   = product.Price,
+            ImageUrl    = product.ImageUrl,
+        };
+        CartService.AddProduct(dbProduct);
+    }
+
+    private void HandleWishlist(Product product) { }
+}

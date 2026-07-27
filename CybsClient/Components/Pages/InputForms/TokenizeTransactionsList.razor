@@ -1,0 +1,210 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/tokenize-transactions"
+
+@inject NavigationManager Navigation
+
+@using CybsClient.Services.DTOs
+@using CybsClient.Services.Utilities
+@using System.Text.Json
+
+<title>Tokenize Transactions</title>
+
+<div class="py-1 text-center">
+    <h2>Tokenize Transactions</h2>
+</div>
+
+<hr class="my-4">
+
+<div class="row g-2 mb-3 align-items-end">
+    <div class="col-md-5">
+        <label class="form-label fw-semibold">Search by Token ID or Network Token Number</label>
+        <input class="form-control" type="text" placeholder="Enter token ID or network token…"
+               @bind="searchTerm" @bind:event="oninput" @onkeydown="OnSearchKeyDown" />
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-primary" @onclick="SearchAsync" disabled="@isLoading">Search</button>
+        <button class="btn btn-outline-secondary ms-1" @onclick="ClearSearch" disabled="@isLoading">Clear</button>
+    </div>
+    <div class="col-auto ms-auto">
+        <a href="/tokenize" class="btn btn-outline-primary btn-sm">Go to Tokenize Form</a>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-muted py-3"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading…</div>
+}
+else if (errorMessage is not null)
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+else if (records is null || records.Count == 0)
+{
+    <div class="alert alert-info">No tokenize transactions found. Submit a card on the <a href="/tokenize">Tokenize page</a> to create records.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>Created (UTC)</th>
+                    <th>Mode</th>
+                    <th>Token ID</th>
+                    <th>State</th>
+                    <th>Card Type</th>
+                    <th>Network Token (masked)</th>
+                    <th>Suffix</th>
+                    <th>PAR</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var rec in records)
+                {
+                    <tr style="cursor:pointer" @onclick="() => GoToDetail(rec.TokenizeTransactionId)">
+                        <td><small>@rec.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</small></td>
+                        <td>
+                            <span class="badge @GetModeBadge(rec.EndpointMode)">@rec.EndpointMode</span>
+                        </td>
+                        <td>
+                            <a href="/tokenize-transactions/@rec.TokenizeTransactionId"
+                               class="text-decoration-none font-monospace small">
+                                @Truncate(rec.TokenId, 28)
+                            </a>
+                        </td>
+                        <td>
+                            <span class="badge @GetStateBadge(rec.TokenState)">@(rec.TokenState ?? "—")</span>
+                        </td>
+                        <td>@(rec.CardType ?? "—")</td>
+                        <td><span class="font-monospace small">@(rec.NetworkTokenNumber ?? "—")</span></td>
+                        <td>@(rec.RequestCardSuffix is not null ? $"••••{rec.RequestCardSuffix}" : "—")</td>
+                        <td><small class="text-muted">@Truncate(rec.PaymentAccountReference, 20)</small></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mt-2">
+        <small class="text-muted">
+            Showing @(((currentPage - 1) * pageSize) + 1)–@(Math.Min(currentPage * pageSize, totalCount)) of @totalCount
+        </small>
+        @if (totalPages > 1)
+        {
+            <StorePagination CurrentPage="currentPage"
+                             TotalPages="totalPages"
+                             OnPageChanged="OnPageChanged" />
+        }
+    </div>
+}
+
+<footer class="my-5 pt-5 text-body-secondary text-center text-small">
+    <p class="mb-1">&copy; 2017–2024 Company Name</p>
+</footer>
+
+@code {
+    private List<TokenizeTransactionDto>? records;
+    private bool isLoading = true;
+    private string? errorMessage;
+    private string? searchTerm;
+
+    private int currentPage = 1;
+    private int pageSize    = 10;
+    private int totalCount  = 0;
+    private int totalPages  => (int)Math.Ceiling((double)totalCount / pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading    = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await CallMinAPIs.GetTokenizeTransactionsAsync(currentPage, pageSize, searchTerm);
+
+            if (!result.IsSuccess || result.Error is not null)
+            {
+                errorMessage = result.Error?.Message ?? "Failed to load transactions.";
+                records = new();
+            }
+            else if (result.Data is not null)
+            {
+                records    = result.Data.Items;
+                totalCount = result.Data.TotalCount;
+
+                if (result.Data.Error is not null)
+                    errorMessage = result.Data.Error.Message;
+            }
+            else
+            {
+                records = new();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            records = new();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SearchAsync()
+    {
+        currentPage = 1;
+        await LoadAsync();
+    }
+
+    private async Task ClearSearch()
+    {
+        searchTerm  = null;
+        currentPage = 1;
+        await LoadAsync();
+    }
+
+    private async Task OnPageChanged(int page)
+    {
+        currentPage = page;
+        await LoadAsync();
+    }
+
+    private async Task OnSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchAsync();
+    }
+
+    private void GoToDetail(int id)
+    {
+        Navigation.NavigateTo($"/tokenize-transactions/{id}");
+    }
+
+    private static string Truncate(string? value, int max) =>
+        string.IsNullOrWhiteSpace(value) ? "—"
+        : value.Length <= max ? value
+        : value[..max] + "…";
+
+    private static string GetModeBadge(string? mode) =>
+        mode switch
+        {
+            "tokenized-cards-mle" => "bg-info text-dark",
+            "tokenized-cards"     => "bg-primary",
+            _                     => "bg-secondary"
+        };
+
+    private static string GetStateBadge(string? state) =>
+        state?.ToUpperInvariant() switch
+        {
+            "ACTIVE"   => "bg-success",
+            "INACTIVE" => "bg-secondary",
+            "FAILED"   => "bg-danger",
+            _          => "bg-light text-dark border"
+        };
+}

@@ -1,0 +1,199 @@
+﻿@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/tokencreate"
+
+@inject IHttpClientFactory httpClientFactory
+@inject ICartService cartService
+@inject ITransactionJson transactionJson
+@inject NavigationManager Navigation
+
+@inject ICustomersScoped customersScoped
+@inject ISessionTransactions sessionTransactions
+
+
+<title>Token Creation</title>
+
+<div class="py-1 text-center">
+    <h2>Create TMS Token</h2>
+</div>
+
+<hr class="my-4">
+
+<div>
+    <div class="row g-5">
+        @if (Show)
+        {
+            <CustomerMasterComponent ButtonText="Create Token" FormElements="HomeFormElements" FormCustomer="b2CCustomer" ValidSubmit="Submit"></CustomerMasterComponent>
+        }
+
+        <FormSection>
+            @if (error is not null)
+            {
+                <div class="col-6">
+                    <strong class="alert-danger">@error</strong>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Follow on Actions
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="tokencreate">New Token Create</a></li>
+                    </ul>
+                </div>
+            }
+        </FormSection>
+    </div>
+
+  <footer class="my-5 pt-5 text-body-secondary text-center text-small">
+    <p class="mb-1">&copy; 2017–2024 Company Name</p>
+    <ul class="list-inline">
+      <li class="list-inline-item"><a href="#">Privacy</a></li>
+      <li class="list-inline-item"><a href="#">Terms</a></li>
+      <li class="list-inline-item"><a href="#">Support</a></li>
+    </ul>
+  </footer>
+</div>
+
+@code {
+
+    private bool Show = true;
+    private bool containsError = false;
+
+    List<string> HomeFormElements = new List<string> { "ShowMainForm", "ShowBilling", "ShowAccountDetails", "ShowCreateToken" };
+
+    private string? error;
+
+    private List<string> TokenTypes = new();
+
+    private B2cCustomer b2CCustomer = new();
+
+    private static List<BasicErrorInfo> basicErrorInfos = new List<BasicErrorInfo>();
+
+    private ISessionTransactions _sessionTransactions = new SessionTransactions();
+
+    private SessionTransJson sessionTransJson = new();
+
+    private JsonNode? _transactionJson = null;
+
+    private List<string> propertyValues = new List<string>();
+    private FollowOnTransResponse? followOnTransResponse = new FollowOnTransResponse();
+
+
+    protected override void OnInitialized()
+    {
+
+        _sessionTransactions = sessionTransactions;
+
+        if (_sessionTransactions.Transactions.Count > 0)
+        {
+            sessionTransJson = _sessionTransactions.Transactions.LastOrDefault()!;
+        }
+
+        if (sessionTransJson.Customer != null)
+        {
+            b2CCustomer = sessionTransJson.Customer;
+        }
+    }
+
+
+    private async Task Submit(B2cCustomer submittedCustomer)
+    {
+        try
+        {
+
+            sessionTransJson.OriginalTransactionType = CcTransactionTypes.TOKEN_CREATE;
+            sessionTransJson.CurrentTransactionType = CcTransactionTypes.TOKEN_CREATE;
+
+            // Serialize the object into a string for submission
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(submittedCustomer, options);
+
+            // POST FOR FOLLOW ON TRANSACTION *******
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString, 
+                _sessionTransactions, (CcTransactionTypes)sessionTransJson.CurrentTransactionType!);
+
+            // POST FOR FOLLOW ON TRANSACTION *******
+
+            Console.WriteLine("Session Response: " + sessionResponse?.ToString());
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse is not null && sessionResponse.TransactionJson is not null && sessionResponse.TransactionStatus != "error")
+            {
+                basicErrorInfos = JsonErrorExtractor.ExtractErrorObjects(sessionResponse.TransactionJson.ToString());
+
+                bool containsError = basicErrorInfos.Any(e =>
+                    AppErrorConfig.ErrorKeywords.Any(k =>
+                        $"{e.Status} {e.Reason} {e.Message} {e.Action}"
+                            .ToLowerInvariant()
+                            .Contains(k.ToLowerInvariant())
+                    )
+                );
+
+            }
+
+            if (containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse != null && containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+            else if (sessionResponse != null && sessionResponse.TransactionJson != null && !containsError)
+            {
+                Show = false;
+                sessionTransactions.AddTrans(sessionResponse!);
+                Navigation.NavigateTo("/processfollowontoken");
+                StateHasChanged();
+            }
+            else 
+            {
+                Show = false;
+                sessionTransactions.AddTrans(sessionResponse!);
+                Navigation.NavigateTo("/processfollowontoken");
+            }
+        }
+        catch (Exception ex)
+        {
+            Show = false;
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    private void HandleErrorAndRedirect(SessionTransJson? response, string fallbackErrorMessage = "Unknown error")
+    {
+        StateHasChanged(); // optional UI refresh
+
+        var errorMessage = response?.error ?? fallbackErrorMessage;
+        var errorJsonState = response?.JsonTransactionStateValues ?? TransactionStateValues.Error;
+
+        var errorResponse = response ?? new SessionTransJson
+        {
+            JsonTransactionStateValues = errorJsonState,
+            error = errorMessage,
+            TransactionStatus = "error"
+        };
+
+        sessionTransactions.AddTrans(errorResponse);
+        Navigation.NavigateTo("/errorhandler");
+    }
+}

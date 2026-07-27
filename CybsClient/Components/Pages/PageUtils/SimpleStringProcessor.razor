@@ -1,0 +1,256 @@
+@page "/simplejson"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Microsoft.AspNetCore.Hosting
+
+@inject IHttpClientFactory httpClientFactory
+@inject ICartService cartService
+@inject ITransactionJson transactionJson
+@inject NavigationManager Navigation
+@inject IWebHostEnvironment env
+
+@inject ICustomersScoped customersScoped
+@inject ISessionTransactions sessionTransactions
+
+<h3>Simple JSON Processor</h3>
+
+<div class="container-fluid">
+    <main>
+
+        <EditForm Model="simpleJsonObject">
+        <FormSection Title="Use Defaults" HelpText="">
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="col-md-10 mt-2">
+                        <label for="endpointSelect" class="form-label">URL Resource - Leave Off Base</label>
+                        <select class="form-select" id="endpointSelect" @onchange="OnEndpointSelected">
+                            <option value="">-- Select an endpoint --</option>
+                            @foreach (var ep in endpoints)
+                            {
+                                <option value="@($"{ep.Method}|{ep.Resource}")">@ep.Method @ep.Resource — @ep.Description</option>
+                            }
+                            <option value="freehand">Freehand...</option>
+                        </select>
+                        @if (isFreehand)
+                        {
+                            <InputText @bind-Value="simpleJsonObject!.Resource" class="form-control mt-2" id="resource" placeholder="Enter resource path (e.g., /pts/v2/payments)" />
+                        }
+                    </div>
+                    <div class="col-md-10 mt-2">
+                        <label for="value" class="form-label">JSON Value:</label>
+                        <InputTextArea style="width: 600px; height: 400px;" @bind-Value="simpleJsonObject!.Value" class="form-control" id="value" placeholder="" />
+                    </div>
+                    <div class="col-md-10 mt-2">
+                        <div class="form-check">
+                            <InputCheckbox @bind-Value="simpleJsonObject!.IsBoarding" class="form-check-input" id="isBoarding" />
+                            <label class="form-check-label" for="isBoarding">Boarding (use Portfolio credentials)</label>
+                        </div>
+                    </div>
+                    <div class="col-md-10 mt-2">
+                        <label for="presetSelect" class="form-label">Encryption Preset</label>
+                        <select class="form-select" id="presetSelect" @onchange="OnPresetSelected">
+                            <option value="">-- Apply a preset --</option>
+                            <option value="none|none">None — plain request / plain response</option>
+                            <option value="mle|none">MLE Request only</option>
+                            <option value="mle|wrapped">MLE Request + Wrapped Response ({encryptedResponse})</option>
+                            <option value="none|blob">Plain Request + BLOB Response (legacy-MLE / application/jose)</option>
+                            <option value="mle|blob">MLE Request + BLOB Response (tokenized cards encrypted request)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-10 mt-2">
+                        <label for="requestEncryption" class="form-label">Request Encryption</label>
+                        <InputSelect @bind-Value="simpleJsonObject!.RequestEncryption" class="form-select" id="requestEncryption">
+                            <option value="none">None</option>
+                            <option value="mle">MLE</option>
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-10 mt-2">
+                        <label for="responseEncryption" class="form-label">Response Encryption</label>
+                        <InputSelect @bind-Value="simpleJsonObject!.ResponseEncryption" class="form-select" id="responseEncryption">
+                            <option value="none">None</option>
+                            <option value="wrapped">Wrapped ({encryptedResponse:...})</option>
+                            <option value="blob">BLOB (JWE compact / application/jose)</option>
+                        </InputSelect>
+                    </div>
+                </div>
+            </div>
+        </FormSection>
+        </EditForm>
+
+        <hr class="my-4">
+
+        <button class="btn btn-primary" type="button" @onclick="Submit">
+            SUBMIT JSON FOR PROCESSING
+        </button>
+
+        <hr class="my-4">
+        <br />
+
+    </main>
+</div>
+
+@if (error != null)
+{
+    <p class="text-danger">@error</p>
+}
+
+@code {
+
+    public bool Show { get; set; } = true;
+
+    private string? error;
+
+    private ISessionTransactions _sessionTransactions = new SessionTransactions();
+    private CcTransactionTypes ccTransactionType = new CcTransactionTypes();
+    private SessionTransJson sessionTransJson = new();
+
+    private JsonNode? _transactionJson = null;
+
+    private SimpleJsonObject simpleJsonObject = new SimpleJsonObject
+    {
+        RequestEncryption = "none",
+        ResponseEncryption = "none"
+    };
+
+    private List<UrlEndpointEntry> endpoints = new();
+    private bool isFreehand = false;
+
+    private bool containsError = false;
+    private static List<BasicErrorInfo> basicErrorInfos = new List<BasicErrorInfo>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Console.WriteLine("SimpleJsonProcessor.OnInitializedAsync()");
+        var jsonPath = System.IO.Path.Combine(env.ContentRootPath, "urlEndpoints.json");
+        if (System.IO.File.Exists(jsonPath))
+        {
+            var json = await System.IO.File.ReadAllTextAsync(jsonPath);
+            endpoints = JsonSerializer.Deserialize<List<UrlEndpointEntry>>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+        }
+    }
+
+    private void OnEndpointSelected(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString() ?? string.Empty;
+        if (val == "freehand")
+        {
+            isFreehand = true;
+            simpleJsonObject.Resource = string.Empty;
+            simpleJsonObject.HttpMethod = "POST";
+        }
+        else if (!string.IsNullOrEmpty(val))
+        {
+            isFreehand = false;
+            var parts = val.Split('|', 2);
+            simpleJsonObject.HttpMethod = parts.Length > 0 ? parts[0] : "POST";
+            simpleJsonObject.Resource = parts.Length > 1 ? parts[1] : string.Empty;
+        }
+        else
+        {
+            isFreehand = false;
+            simpleJsonObject.Resource = string.Empty;
+            simpleJsonObject.HttpMethod = null;
+        }
+    }
+
+    private void OnPresetSelected(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString() ?? string.Empty;
+        if (string.IsNullOrEmpty(val)) return;
+        var parts = val.Split('|', 2);
+        simpleJsonObject.RequestEncryption = parts.Length > 0 ? parts[0] : "none";
+        simpleJsonObject.ResponseEncryption = parts.Length > 1 ? parts[1] : "none";
+    }
+
+    private async Task Submit()
+    {
+        try
+        {
+
+            ccTransactionType = CcTransactionTypes.SIMPLE_STRING;
+
+            // Serialize the object into a string for submission
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            string jsonString = JsonSerializer.Serialize(simpleJsonObject, options);
+
+            // POST FOR SIMPLE JSON TRANSACTION *******
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                _sessionTransactions, ccTransactionType);
+
+            // POST FOR SIMPLE JSON TRANSACTION *******
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse is not null && sessionResponse.TransactionJson is not null && sessionResponse.TransactionStatus != "error")
+            {
+                basicErrorInfos = JsonErrorExtractor.ExtractErrorObjects(sessionResponse.TransactionJson.ToString());
+
+                bool containsError = basicErrorInfos.Any(e =>
+                    AppErrorConfig.ErrorKeywords.Any(k =>
+                        $"{e.Status} {e.Reason} {e.Message} {e.Action}"
+                            .ToLowerInvariant()
+                            .Contains(k.ToLowerInvariant())
+                    )
+                );
+
+            }
+
+            if (containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse != null && containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+            else
+            {
+                sessionTransactions.AddTrans(sessionResponse!);
+                Navigation.NavigateTo("/processfollowon");
+            }
+
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    private void HandleErrorAndRedirect(SessionTransJson? sessionResponse, string? customErrorMessage = null)
+    {
+        if (sessionResponse != null)
+        {
+            error = sessionResponse.error ?? "An error occurred during processing.";
+        }
+        else if (!string.IsNullOrEmpty(customErrorMessage))
+        {
+            error = customErrorMessage;
+        }
+        else
+        {
+            error = "An unknown error occurred.";
+        }
+        sessionTransactions.AddTrans(new SessionTransJson { error = error });
+        Navigation.NavigateTo("/errorhandler");
+    }
+
+}

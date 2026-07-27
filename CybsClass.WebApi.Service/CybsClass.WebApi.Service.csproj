@@ -1,0 +1,92 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Microsoft.NET.Sdk (library) does not add the Web SDK's implicit global usings;
+       the sources were written under Microsoft.NET.Sdk.Web, so restore them here. -->
+  <ItemGroup>
+    <Using Include="System.Net.Http.Json" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AspNetCoreRateLimit" Version="5.0.0" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.10">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.VisualStudio.Web.CodeGeneration.Design" Version="10.0.2" />
+    <PackageReference Include="NuGet.Packaging" Version="7.6.0" />
+    <PackageReference Include="NuGet.Protocol" Version="7.6.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.19.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CybsClass.Cybersource\CybsClass.Cybersource.csproj" />
+    <ProjectReference Include="..\CybsClass.DataContext.Sqlite\CybsClass.DataContext.Sqlite.csproj" />
+    <ProjectReference Include="..\CybsClass.EntityModels.Sqlite\CybsClass.EntityModels.Sqlite.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- REST keys -->
+    <Content Include="..\CybsClass.Cybersource\Resource\restkeys\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <TargetPath>Resource\restkeys\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+
+    <!-- P12 certs (excludes applepay\ — that subfolder has its own Content item below with a
+         different TargetPath, and would otherwise collide as a duplicate Content item) -->
+    <Content Include="..\CybsClass.Cybersource\Resource\**\*.p12" Exclude="..\CybsClass.Cybersource\Resource\applepay\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <TargetPath>Resource\certs\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+
+    <!-- MLE PEM certs -->
+    <Content Include="..\CybsClass.Cybersource\Resource\mle\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <TargetPath>Resource\mle\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+
+    <!-- Legacy MLE keypair -->
+    <Content Include="..\CybsClass.Cybersource\Resource\key\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <TargetPath>Resource\key\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+
+    <!-- Apple Pay Payment Processing Certificate (merchant decryption key pair) -->
+    <Content Include="..\CybsClass.Cybersource\Resource\applepay\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <TargetPath>Resource\applepay\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+  </ItemGroup>
+
+
+  </Project>

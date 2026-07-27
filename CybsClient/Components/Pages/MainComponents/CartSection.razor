@@ -1,0 +1,93 @@
+<div class="col-md-5 col-lg-4 order-md-last">
+    <h4 class="d-flex justify-content-between align-items-center mb-3">
+        <span class="text-primary">Your cart</span>
+        @if (CartService is null)
+        {
+            <span class="badge bg-primary rounded-pill">0</span>
+        }
+        else
+        {
+            <span class="badge bg-primary rounded-pill">@CartService.cart.Count</span>
+        }
+    </h4>
+    <FormSection>
+        @if (CartService is null)
+        { }
+        else
+        {
+            @foreach (var item in CartService.cart)
+            {
+                <ul class="list-group mb-3">
+                    <li class="list-group-item d-flex justify-content-between lh-sm">
+                        <div>
+                            <h6 class="my-0"><b>Product name:</b> @item.ProductName</h6>
+                            <small class="text-body-secondary">Product ID: @item.ProductId</small>
+                            <span class="text-body-secondary">$@item.UnitPrice?.ToString("0.00")</span>
+                        </div>
+                    </li>
+                </ul>
+            }
+        }
+        <li class="list-group-item d-flex justify-content-between">
+            <span>Total (USD)</span>
+            @if (CartService is null)
+            { }
+            else
+            {
+                <strong>$@CartService.TotalPrice?.ToString("0.00")</strong>
+            }
+        </li>
+    </FormSection>
+    <form class="card p-2">
+        <div class="input-group">
+            <input type="text" class="form-control" placeholder="Promo code">
+            <button type="submit" class="btn btn-secondary">Redeem</button>
+        </div>
+    </form>
+</div>
+
+@code {
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    [Inject] private ISessionTransactions sessionTransactions { get; set; } = default!;
+
+    [Parameter] public DBRandomCart? CartService { get; set; }
+    [Parameter] public EventCallback<DBRandomCart?> CartServiceChanged { get; set; }
+    [Parameter] public EventCallback<decimal?> FormAmountChanged { get; set; }
+    [Parameter] public EventCallback<string?> CartErrorChanged { get; set; }
+
+    public async Task PopulateDefaultCartAsync()
+    {
+        try
+        {
+            CartService = await GeneralNetworkUtilities.PopulateCart();
+            if (CartService is not null && CartService.TotalPrice is not null)
+            {
+                Console.WriteLine($"Cart total = {CartService.TotalPrice}");
+                await CartServiceChanged.InvokeAsync(CartService);
+                await FormAmountChanged.InvokeAsync(CartService.TotalPrice);
+            }
+            else if (CartService is null || CartService.TotalPrice is null)
+            {
+                Console.WriteLine("Cart Service is NULL");
+                var error = "Cart Service is NULL";
+                await CartErrorChanged.InvokeAsync(error);
+                SessionTransJson sessionResponse = new();
+                sessionResponse!.error = error;
+                sessionTransactions.AddTrans(sessionResponse);
+                Navigation.NavigateTo("/errorhandler");
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"No server connection {ex.Message}");
+            var error = "Error: " + ex.Message;
+            await CartErrorChanged.InvokeAsync(error);
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+}

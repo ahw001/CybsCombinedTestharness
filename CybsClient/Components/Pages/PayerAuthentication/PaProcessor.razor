@@ -1,0 +1,301 @@
+﻿@page "/paprocessor"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+@inject IHttpClientFactory httpClientFactory
+@inject ICartService cartService
+@inject ITransactionJson transactionJson
+@inject NavigationManager Navigation
+@inject ICustomersScoped customersScoped
+@inject ISessionTransactions sessionTransactions
+
+
+<h3>Check Enrollment-Validate Response</h3>
+
+<div class="container">
+    <div class="row row-cols-1 row-cols-md-2 gy-4">
+        @if (showCheckEnrollResponse)
+        {
+            <div class="col-sm-6 mb-3 mb-sm-0">
+                <div class="card">
+                    <div class="card-title">
+                        <h3>Check Enrollment Response:</h3>
+                    </div>
+                    <hr class="my-4">
+                    <div class="card-body">
+                        @if (propertyValues != null && propertyValues.Count > 0)
+                        {
+                            <ul>
+                                @foreach (var propertyValue in propertyValues)
+                                {
+                                    <li>@propertyValue</li>
+                                }
+                            </ul>
+                        }
+                        else
+                        {
+                            <p>@error</p>
+                        }
+                    </div>
+                    <div class="card-footer">
+                        @if (authorizedInline)
+                        {
+                            <p class="text-success mb-0">
+                                <b>Frictionless authentication and authorization completed in a single combined call — no further action required.</b>
+                            </p>
+                        }
+                        else if (showAuthorizeButton)
+                        {
+                            <button class="btn btn-primary" type="button" @onclick="AuthorizeFrictionless">
+                                Authorize (Frictionless)
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        @if (showValidateResponse)
+        {
+            <div class="col-sm-6 mb-3 mb-sm-0">
+                <div class="card">
+                    <div class="card-title">
+                        <h3>Response Data for Check Enrollement:</h3>
+                        <div class="dropdown">
+                            <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                Follow on Actions
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="pastepup">Perform Step Up URL</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                    <hr class="my-4">
+                    <div class="card-body">
+                        @if (propertyValues != null && propertyValues.Count > 0)
+                        {
+                            <ul>
+                                @foreach (var propertyValue in propertyValues)
+                                {
+                                    <li>@propertyValue</li>
+                                }
+                            </ul>
+                        }
+                        else
+                        {
+                            <p>@error</p>
+                        }
+                    </div>
+                    <div class="card-footer">
+                        <div class="dropdown">
+                            <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                Follow on Actions
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="pastepup">Perform Step Up URL</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+
+    private string transactionPageTitle = string.Empty;
+
+    private string error = string.Empty;
+
+    private ISessionTransactions _sessionTransactions = new SessionTransactions();
+    private SessionTransJson sessionTransJson = new SessionTransJson();
+    private CcTransactionTypes currentTransaction;
+
+    FollowOnTransResponse followOnTransResponse = new FollowOnTransResponse();
+
+    private bool showCheckEnrollResponse = true;
+    private bool showValidateResponse = false;
+    private bool showAuthorizeButton = false;
+    private bool authorizedInline = false;
+
+    string statusNode = string.Empty;
+    string id = string.Empty;
+    string orderId = string.Empty;
+
+    private List<string> propertyValues = new List<string>();
+    private List<string> propertyValues1 = new List<string>();
+
+    protected override void OnInitialized()
+    {
+        _sessionTransactions = sessionTransactions;
+
+        var lastTrans = _sessionTransactions.Transactions.LastOrDefault();
+
+        if (lastTrans is null)
+        {
+            _sessionTransactions.AddTrans(new SessionTransJson
+            {
+                error = "No transaction data found in session. Please restart the payment flow."
+            });
+            Navigation.NavigateTo("/errorhandler");
+            return;
+        }
+
+        sessionTransJson = lastTrans;
+
+        transactionPageTitle = sessionTransJson.CurrentTransactionType.ToString() + ": Follow on Transaction";
+
+        if (sessionTransJson.TransactionJson is not null)
+        {
+            try
+            {
+                if (followOnTransResponse is null)
+                {
+                    followOnTransResponse = new FollowOnTransResponse();
+                }
+
+                currentTransaction = (CcTransactionTypes)sessionTransJson.CurrentTransactionType!;
+
+                Console.WriteLine($"Current Transaction Info\n: {JsonLogFormatter.Pretty(sessionTransJson!.TransactionJson)}");
+
+                followOnTransResponse = JsonSerializer.Deserialize<FollowOnTransResponse>(sessionTransJson!.TransactionJson!.ToString())!;
+
+                // Combined enroll+auth call (/pts/v2/payments with CONSUMER_AUTHENTICATION):
+                // a challenge outcome arrives as CUSTOMER_AUTHENTICATION_REQUIRED and stops
+                // before authorization; a frictionless outcome arrives already AUTHORIZED.
+                if (followOnTransResponse is not null
+                 && (followOnTransResponse.Status == "CUSTOMER_AUTHENTICATION_REQUIRED"
+                     || (followOnTransResponse.ConsumerAuthenticationInformation is not null
+                         && followOnTransResponse.ConsumerAuthenticationInformation.ParesStatus == "C"
+                         && followOnTransResponse.ConsumerAuthenticationInformation.VeresEnrolled == "Y")))
+                {
+                     showCheckEnrollResponse = false;
+                     showValidateResponse = true;
+                }
+                else if (followOnTransResponse is not null
+                 && followOnTransResponse.Status == "AUTHORIZED")
+                {
+                    authorizedInline = true;
+                }
+                else if (followOnTransResponse is not null
+                 && followOnTransResponse.ConsumerAuthenticationInformation is not null
+                 && followOnTransResponse.ConsumerAuthenticationInformation.ParesStatus == "Y")
+                {
+                    showAuthorizeButton = true;
+                }
+
+                propertyValues = PropertiesProcessor.GetProperties(followOnTransResponse!);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async Task AuthorizeFrictionless()
+    {
+        try
+        {
+            sessionTransJson.OriginalTransactionType = CcTransactionTypes.FLEX_AFT_VALIDATE_AUTH;
+            sessionTransJson.CurrentTransactionType = CcTransactionTypes.FLEX_AFT_VALIDATE_AUTH;
+
+            var b2cCustomer = sessionTransJson.Customer ?? new B2cCustomer();
+
+            var aftValidateDto = new AftValidateDto
+            {
+                ClientReferenceInformation = new ClientReferenceInformation
+                {
+                    Code = "PA" + DateTime.UtcNow.ToString("yyyyMMddHHmmss")
+                },
+                ProcessingInformation = new ProcessingInformation
+                {
+                    AuthorizationOptions = new AuthorizationOptions
+                    {
+                        AftIndicator = true,
+                        PartialAuthIndicator = b2cCustomer.AllowPartialAuth ? true : null
+                    },
+                    CommerceIndicator = "internet",
+                    BusinessApplicationId = "AA",
+                    PurposeOfPayment = "ISACCT",
+                    ActionList = new[] { "VALIDATE_CONSUMER_AUTHENTICATION", "TOKEN_CREATE" },
+                    ActionTokenTypes = new[] { "paymentInstrument, instrumentIdentifier" }
+                },
+                OrderInformation = new OrderInformation
+                {
+                    AmountDetails = new AmountDetails
+                    {
+                        TotalAmount = b2cCustomer.TotalAmount.HasValue ? b2cCustomer.TotalAmount.Value.ToString("0.00") : "0.00",
+                        Currency = b2cCustomer.Currency ?? "USD"
+                    },
+                    BillTo = new BillTo
+                    {
+                        FirstName = b2cCustomer.FirstName ?? "null",
+                        LastName = b2cCustomer.LastName ?? "null",
+                        Address1 = b2cCustomer.Address1 ?? "null",
+                        Locality = b2cCustomer.City ?? "null",
+                        AdministrativeArea = b2cCustomer.AdministrativeArea ?? "null",
+                        PostalCode = b2cCustomer.PostalCode ?? "null",
+                        Country = b2cCustomer.Country ?? "null",
+                        PhoneNumber = b2cCustomer.Phone ?? "null",
+                        Email = b2cCustomer.Email ?? "null"
+                    }
+                },
+                TokenInformation = new TokenInformation
+                {
+                    TransientTokenJwt = b2cCustomer.TransientTokenJwt
+                },
+                ConsumerAuthenticationInformation = new ConsumerAuthenticationInformation
+                {
+                    AuthenticationTransactionId = followOnTransResponse.ConsumerAuthenticationInformation?.AuthenticationTransactionId
+                }
+            };
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(aftValidateDto, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                _sessionTransactions, CcTransactionTypes.FLEX_AFT_VALIDATE_AUTH);
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/processfollowon");
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+            var errorResponse = new SessionTransJson { error = error };
+            sessionTransactions.AddTrans(errorResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    private void HandleErrorAndRedirect(SessionTransJson? response, string fallbackErrorMessage = "Unknown error")
+    {
+        var errorMessage = response?.error ?? fallbackErrorMessage;
+        var errorJsonState = response?.JsonTransactionStateValues ?? TransactionStateValues.Error;
+
+        var errorResponse = response ?? new SessionTransJson
+        {
+            JsonTransactionStateValues = errorJsonState,
+            error = errorMessage,
+            TransactionStatus = "error"
+        };
+
+        sessionTransactions.AddTrans(errorResponse);
+        Navigation.NavigateTo("/errorhandler");
+    }
+}
+

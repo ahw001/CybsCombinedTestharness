@@ -1,0 +1,49 @@
+@page "/store/contact"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Contact Us – CyberStore</PageTitle>
+
+<StoreNavBar />
+
+<div class="container py-5" style="max-width: 560px;">
+    <h1 class="display-4 fw-light mb-2" style="letter-spacing: -1.5px;">
+        Contact <strong class="fw-bold">Us</strong>
+    </h1>
+    <p class="text-muted mb-4">We'd love to hear from you.</p>
+
+    <div class="d-flex flex-column gap-3">
+        <div>
+            <label class="form-label small fw-medium">Name</label>
+            <input @bind="_name" type="text" class="form-control" placeholder="Your name" />
+        </div>
+        <div>
+            <label class="form-label small fw-medium">Email</label>
+            <input @bind="_email" type="email" class="form-control" placeholder="your@email.com" />
+        </div>
+        <div>
+            <label class="form-label small fw-medium">Message</label>
+            <textarea @bind="_message" rows="5" class="form-control"
+                      placeholder="How can we help?"></textarea>
+        </div>
+        <div>
+            <button class="btn btn-outline-dark px-4 py-2" @onclick="Submit">Send Message</button>
+        </div>
+        @if (_submitted)
+        {
+            <p class="text-success small">✓ Thanks! We'll be in touch soon.</p>
+        }
+    </div>
+</div>
+
+<StoreFooter />
+
+@code {
+    private string _name = "", _email = "", _message = "";
+    private bool _submitted = false;
+
+    private void Submit()
+    {
+        if (!string.IsNullOrWhiteSpace(_name) && !string.IsNullOrWhiteSpace(_email))
+            _submitted = true;
+    }
+}

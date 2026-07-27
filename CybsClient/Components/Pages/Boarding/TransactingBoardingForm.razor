@@ -1,0 +1,756 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/transactingboarding"
+
+@using CybsClient.Model.Cybersource.Boarding
+@using CybsClient.Services.Utilities
+@using System.Text.Json
+
+@inject NavigationManager Navigation
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/boarding/dashboard">Boarding Dashboard</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Transacting Merchant Boarding</li>
+    </ol>
+</nav>
+<h2>Transacting Merchant Boarding</h2>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible">
+        @_statusMessage
+        <button type="button" class="btn-close" @onclick="() => _statusMessage = string.Empty"></button>
+    </div>
+}
+
+@if (_savedMerchants.Count > 0)
+{
+    <div class="card mb-3">
+        <div class="card-header"><b>Saved Transacting Merchants</b></div>
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Transacting Org ID</th>
+                        <th>Parent Org</th>
+                        <th>Processor</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var m in _savedMerchants)
+                    {
+                        <tr>
+                            <td>@m.BoardingTransactingMerchantId</td>
+                            <td>@m.TransactingOrganizationId</td>
+                            <td>@m.ParentOrganizationId</td>
+                            <td>@m.BoardingProcessor</td>
+                            <td>@m.Status</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => LoadForEdit(m)">Edit</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(m.BoardingTransactingMerchantId)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><b>Load from JSON</b></span>
+    </div>
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-10">
+                <textarea class="form-control font-monospace" rows="4" placeholder="Paste VdcVantivCPC.json or CardProcessingJSONFDIGlobal.json here..."
+                          @bind="_jsonInput"></textarea>
+            </div>
+            <div class="col-2 d-flex align-items-center">
+                <button class="btn btn-outline-secondary w-100" @onclick="LoadFromJson">Load JSON</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><b>Link to Organization</b></div>
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-md-6">
+                <label class="form-label">Select Saved Organization</label>
+                <select class="form-select" @bind="_selectedOrgId" @bind:after="OnOrgSelected">
+                    <option value="0">-- Select Organization --</option>
+                    @foreach (var org in _savedOrgs)
+                    {
+                        <option value="@org.BoardingOrganizationId">[@org.BoardingOrganizationId] @org.OrganizationId — @org.BusinessName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Or enter Org ID manually</label>
+                <input class="form-control" @bind="_model.BoardingOrganizationId" placeholder="BoardingOrganizationId (integer)" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header"><b>Transacting Merchant Information</b></div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Transacting Organization ID</label>
+                    <input class="form-control" @bind="_model.TransactingOrganizationId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Status</label>
+                    <select class="form-select" @bind="_model.Status">
+                        <option value="">-- Select --</option>
+                        <option value="TEST">TEST</option>
+                        <option value="LIVE">LIVE</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Type</label>
+                    <input class="form-control" value="TRANSACTING" readonly />
+                </div>
+                <div class="mb-2 form-check form-switch">
+                    <input class="form-check-input" type="checkbox" @bind="_configurable" id="configurable" />
+                    <label class="form-check-label" for="configurable">Configurable</label>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Boarding Processor</label>
+                    <select class="form-select" @bind="_model.BoardingProcessor">
+                        <option value="">-- Select --</option>
+                        <option value="vdcvantiv">vdcvantiv</option>
+                        <option value="fdiglobal">fdiglobal</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Boarding Package ID</label>
+                    <input class="form-control" @bind="_model.BoardingPackageId" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Business Name</label>
+                    <input class="form-control" @bind="_model.BusinessName" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Website URL</label>
+                    <input class="form-control" @bind="_model.WebsiteUrl" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Business Phone</label>
+                    <input class="form-control" @bind="_model.BusinessPhoneNumber" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Time Zone</label>
+                    <input class="form-control" @bind="_model.TimeZone" placeholder="America/Chicago" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">MCC</label>
+                    <input class="form-control" @bind="_model.MerchantCategoryCode" placeholder="5999" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header"><b>Address</b></div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Country</label>
+                    <input class="form-control" @bind="_model.AddressCountry" placeholder="US" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Address 1</label>
+                    <input class="form-control" @bind="_model.Address1" />
+                </div>
+                <div class="row g-2">
+                    <div class="col-4">
+                        <label class="form-label">City</label>
+                        <input class="form-control" @bind="_model.Locality" />
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">State</label>
+                        <input class="form-control" @bind="_model.AdministrativeArea" />
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">Postal Code</label>
+                        <input class="form-control" @bind="_model.PostalCode" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex gap-2 mb-4">
+    <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
+        @(_saving ? "Saving..." : (_model.BoardingTransactingMerchantId == 0 ? "Save Transacting Merchant" : "Update Transacting Merchant"))
+    </button>
+    <button class="btn btn-outline-secondary" @onclick="ResetForm">Reset</button>
+    <a class="btn btn-outline-primary" href="/cardprocessingconfig">Go to Card Processing Config</a>
+    <a class="btn btn-outline-secondary" href="/orgboarding">Back to Org Boarding</a>
+</div>
+
+@* ── Link Supplemental Products to a Saved Merchant ───────────────────────── *@
+<div class="card mb-3">
+    <div class="card-header"><b>Link Supplemental Products to Transacting Merchant</b></div>
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">Transacting Merchant</label>
+                <select class="form-select" @bind="_suppLinkMerchantId" @bind:after="OnSuppMerchantChangedAsync">
+                    <option value="0">-- Select Merchant --</option>
+                    @foreach (var m in _savedMerchants)
+                    {
+                        <option value="@m.BoardingTransactingMerchantId">[@m.BoardingTransactingMerchantId] @m.TransactingOrganizationId (@m.BoardingProcessor)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Product Type</label>
+                <select class="form-select" @bind="_suppProductType" @bind:after="OnSuppProductChangedAsync">
+                    <option value="@BoardingProductTypes.DigitalPayments">Digital Payments</option>
+                    <option value="@BoardingProductTypes.CustomerInvoicing">Customer Invoicing</option>
+                    <option value="@BoardingProductTypes.PayByLink">Pay By Link</option>
+                    <option value="@BoardingProductTypes.UnifiedCheckout">Unified Checkout</option>
+                    <option value="@BoardingProductTypes.ValueAddedServices">Value Added Services</option>
+                    <option value="@BoardingProductTypes.VirtualTerminal">Virtual Terminal</option>
+                    <option value="@BoardingProductTypes.PayerAuthentication">Payer Authentication</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Subscription</label>
+                <select class="form-select" @bind="_suppSubscriptionId">
+                    <option value="0">-- Select Subscription --</option>
+                    @foreach (var row in _suppRows)
+                    {
+                        <option value="@row.Id">[ID @row.Id] @row.Summary</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-success w-100"
+                        @onclick="SuppLinkAsync"
+                        disabled="@(_suppLinkMerchantId == 0 || _suppSubscriptionId == 0 || _suppLinking)">
+                    @(_suppLinking ? "Linking..." : "Link")
+                </button>
+            </div>
+        </div>
+
+        @if (_suppLinkMerchantId > 0)
+        {
+            <div class="mt-3">
+                <h6 class="mb-2">Linked Supplemental Products for Merchant @_suppLinkMerchantId</h6>
+                @if (_suppLinks.Count == 0)
+                {
+                    <p class="text-muted mb-0">No supplemental products linked to this merchant yet.</p>
+                }
+                else
+                {
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light">
+                            <tr><th>Link ID</th><th>Product Type</th><th>Subscription ID</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var link in _suppLinks)
+                            {
+                                <tr>
+                                    <td>@link.BoardingTransactingMerchantProductSubscriptionId</td>
+                                    <td>@link.ProductType</td>
+                                    <td>@link.ProductSubscriptionId</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                @onclick="() => SuppUnlinkAsync(link.BoardingTransactingMerchantProductSubscriptionId)">
+                                            Unlink
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@* ── Link Card Processing Config to a Saved Merchant ──────────────────────── *@
+<div class="card mb-3">
+    <div class="card-header"><b>Link Card Processing Config to Transacting Merchant</b></div>
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label">Transacting Merchant</label>
+                <select class="form-select" @bind="_linkMerchantId" @bind:after="LoadLinkedSubscriptionsAsync">
+                    <option value="0">-- Select Merchant --</option>
+                    @foreach (var m in _savedMerchants)
+                    {
+                        <option value="@m.BoardingTransactingMerchantId">[@m.BoardingTransactingMerchantId] @m.TransactingOrganizationId (@m.BoardingProcessor)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label">Card Processing Config</label>
+                <select class="form-select" @bind="_linkSubscriptionId">
+                    <option value="0">-- Select Config --</option>
+                    @foreach (var s in _allSubscriptions)
+                    {
+                        var processor = s.CardProcessingConfig?.ProcessorConfigs.FirstOrDefault()?.ProcessorName ?? "?";
+                        <option value="@s.BoardingProductSubscriptionId">
+                            [ID @s.BoardingProductSubscriptionId] @s.ProductName — @processor @(string.IsNullOrEmpty(s.TemplateId) ? "" : $"(tpl: {s.TemplateId})")
+                        </option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-success w-100"
+                        @onclick="LinkSubscriptionAsync"
+                        disabled="@(_linkMerchantId == 0 || _linkSubscriptionId == 0 || _linking)">
+                    @(_linking ? "Linking..." : "Link")
+                </button>
+            </div>
+        </div>
+
+        @if (_linkedSubscriptions.Count > 0)
+        {
+            <div class="mt-3">
+                <h6 class="mb-2">Currently Linked Configs for Selected Merchant</h6>
+                <table class="table table-sm table-bordered mb-0">
+                    <thead class="table-light">
+                        <tr><th>Link ID</th><th>Config ID</th><th>Product</th><th>Processor</th><th>Template</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var link in _linkedSubscriptions)
+                        {
+                            <tr>
+                                <td>@link.LinkId</td>
+                                <td>@link.Subscription.BoardingProductSubscriptionId</td>
+                                <td>@link.Subscription.ProductName</td>
+                                <td>@(link.Subscription.CardProcessingConfig?.ProcessorConfigs.FirstOrDefault()?.ProcessorName ?? "—")</td>
+                                <td>@link.Subscription.TemplateId</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-danger"
+                                            @onclick="() => UnlinkSubscriptionAsync(link.LinkId)">Unlink</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (_linkMerchantId > 0)
+        {
+            <p class="text-muted mt-3 mb-0">No card processing configs linked to this merchant yet.</p>
+        }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "id")]
+    public int Id { get; set; }
+
+    private BoardingTransactingMerchantDto _model = new() { Type = "TRANSACTING" };
+    private List<BoardingOrganizationDto>  _savedOrgs      = new();
+    private List<BoardingTransactingMerchantDto> _savedMerchants = new();
+
+    // Link section
+    private List<BoardingCardProductSubscriptionDto> _allSubscriptions    = new();
+    private List<(int LinkId, BoardingCardProductSubscriptionDto Subscription)> _linkedSubscriptions = new();
+    private int  _linkMerchantId      = 0;
+    private int  _linkSubscriptionId  = 0;
+    private bool _linking             = false;
+
+    // Supplemental product linking
+    private int    _suppLinkMerchantId  = 0;
+    private string _suppProductType     = BoardingProductTypes.DigitalPayments;
+    private int    _suppSubscriptionId  = 0;
+    private bool   _suppLinking         = false;
+    private List<(int Id, string Summary)> _suppRows  = new();
+    private List<BoardingTransactingMerchantProductSubscriptionDto> _suppLinks = new();
+
+    private string _jsonInput      = string.Empty;
+    private string _statusMessage  = string.Empty;
+    private bool   _isError        = false;
+    private bool   _saving         = false;
+    private bool   _configurable   = false;
+    private int    _selectedOrgId  = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var orgs = await CallMinAPIs.GetBoardingOrganizationsAsync();
+        _savedOrgs = orgs.Data ?? new();
+        if (orgs.Error is not null) { _isError = true; _statusMessage = $"Failed to load organizations: {orgs.Error.Message}"; }
+
+        var merchants = await CallMinAPIs.GetBoardingTransactingMerchantsAsync();
+        _savedMerchants = merchants.Data ?? new();
+        if (merchants.Error is not null) { _isError = true; _statusMessage = $"Failed to load transacting merchants: {merchants.Error.Message}"; }
+
+        if (Id > 0)
+        {
+            var match = _savedMerchants.FirstOrDefault(m => m.BoardingTransactingMerchantId == Id);
+            if (match is not null)
+                LoadForEdit(match);
+        }
+
+        var subs = await CallMinAPIs.GetAllCardProductSubscriptionsAsync();
+        _allSubscriptions = subs.Data ?? new();
+        if (subs.Error is not null) { _isError = true; _statusMessage = $"Failed to load subscriptions: {subs.Error.Message}"; }
+
+        await LoadSuppRowsAsync();
+    }
+
+    private void OnOrgSelected()
+    {
+        _model.BoardingOrganizationId = _selectedOrgId;
+        var org = _savedOrgs.FirstOrDefault(o => o.BoardingOrganizationId == _selectedOrgId);
+        if (org is not null)
+        {
+            _model.BusinessName         = org.BusinessName;
+            _model.WebsiteUrl           = org.WebsiteUrl;
+            _model.BusinessPhoneNumber  = org.BusinessPhoneNumber;
+            _model.TimeZone             = org.TimeZone;
+            _model.MerchantCategoryCode = org.MerchantCategoryCode;
+            _model.AddressCountry       = org.AddressCountry;
+            _model.Address1             = org.Address1;
+            _model.PostalCode           = org.PostalCode;
+            _model.AdministrativeArea   = org.AdministrativeArea;
+            _model.Locality             = org.Locality;
+            _model.BoardingPackageId    = org.BoardingPackageId;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        _model.Configurable = _configurable;
+        _model.Type = "TRANSACTING";
+        var result = await CallMinAPIs.SaveBoardingTransactingMerchantAsync(_model);
+        _saving = false;
+
+        if (result.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Error: {result.Error.Message}";
+        }
+        else
+        {
+            _isError = false;
+            _statusMessage = $"Transacting merchant '{result.Data?.TransactingOrganizationId}' saved (ID={result.Data?.BoardingTransactingMerchantId}). Select it below to link a card processing config.";
+            ResetForm();
+            var merchants = await CallMinAPIs.GetBoardingTransactingMerchantsAsync();
+            _savedMerchants = merchants.Data ?? new();
+            if (merchants.Error is not null) { _isError = true; _statusMessage = $"Failed to reload merchants: {merchants.Error.Message}"; }
+        }
+    }
+
+    private async Task DeleteAsync(int id)
+    {
+        var del = await CallMinAPIs.DeleteBoardingTransactingMerchantAsync(id);
+        _isError = !del.IsSuccess;
+        _statusMessage = del.Error is not null
+            ? $"Failed to delete transacting merchant {id}: {del.Error.Message}"
+            : $"Transacting merchant {id} deleted.";
+        var merchants = await CallMinAPIs.GetBoardingTransactingMerchantsAsync();
+        _savedMerchants = merchants.Data ?? new();
+        if (merchants.Error is not null) { _isError = true; _statusMessage = $"Failed to reload merchants: {merchants.Error.Message}"; }
+        if (_linkMerchantId == id)
+        {
+            _linkMerchantId = 0;
+            _linkedSubscriptions.Clear();
+        }
+        if (_suppLinkMerchantId == id)
+        {
+            _suppLinkMerchantId = 0;
+            _suppLinks.Clear();
+        }
+    }
+
+    private async Task LoadLinkedSubscriptionsAsync()
+    {
+        _linkedSubscriptions.Clear();
+        if (_linkMerchantId == 0) return;
+
+        var subs = await CallMinAPIs.GetCardProductSubscriptionsByTransactingAsync(_linkMerchantId);
+        if (subs.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Failed to load linked subscriptions: {subs.Error.Message}";
+            return;
+        }
+        // GetByTransacting returns the subscription objects; we need the junction IDs for unlink.
+        // The server GET returns subscription objects, not junction rows, so we store a synthetic
+        // tuple using subscription ID as link key. A dedicated junction GET endpoint can be added
+        // later; for now unlink uses sub ID lookup.
+        _linkedSubscriptions = (subs.Data ?? new())
+            .Select(s => (LinkId: s.BoardingProductSubscriptionId, Subscription: s))
+            .ToList();
+    }
+
+    private async Task LinkSubscriptionAsync()
+    {
+        _linking = true;
+        var dto = new BoardingTransactingMerchantSubscriptionDto
+        {
+            BoardingTransactingMerchantId = _linkMerchantId,
+            BoardingProductSubscriptionId = _linkSubscriptionId
+        };
+        var result = await CallMinAPIs.LinkSubscriptionToMerchantAsync(dto);
+        _linking = false;
+
+        if (result.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Link error: {result.Error.Message}";
+        }
+        else
+        {
+            _isError = false;
+            _statusMessage = $"Config ID {_linkSubscriptionId} linked to merchant ID {_linkMerchantId}.";
+            _linkSubscriptionId = 0;
+            await LoadLinkedSubscriptionsAsync();
+        }
+    }
+
+    private async Task UnlinkSubscriptionAsync(int boardingTransactingMerchantSubscriptionId)
+    {
+        var result = await CallMinAPIs.UnlinkSubscriptionFromMerchantAsync(boardingTransactingMerchantSubscriptionId);
+        _isError = !result.IsSuccess;
+        _statusMessage = result.Error is not null
+            ? $"Failed to unlink config {boardingTransactingMerchantSubscriptionId}: {result.Error.Message}"
+            : $"Config unlinked from merchant.";
+        await LoadLinkedSubscriptionsAsync();
+    }
+
+    private void LoadForEdit(BoardingTransactingMerchantDto m)
+    {
+        _model = new BoardingTransactingMerchantDto
+        {
+            BoardingTransactingMerchantId = m.BoardingTransactingMerchantId,
+            BoardingOrganizationId        = m.BoardingOrganizationId,
+            TransactingOrganizationId     = m.TransactingOrganizationId,
+            Status                        = m.Status,
+            Type                          = "TRANSACTING",
+            Configurable                  = m.Configurable,
+            BusinessName                  = m.BusinessName,
+            WebsiteUrl                    = m.WebsiteUrl,
+            BusinessPhoneNumber           = m.BusinessPhoneNumber,
+            TimeZone                      = m.TimeZone,
+            MerchantCategoryCode          = m.MerchantCategoryCode,
+            AddressCountry                = m.AddressCountry,
+            Address1                      = m.Address1,
+            PostalCode                    = m.PostalCode,
+            AdministrativeArea            = m.AdministrativeArea,
+            Locality                      = m.Locality,
+            BoardingProcessor             = m.BoardingProcessor,
+            BoardingPackageId             = m.BoardingPackageId
+        };
+        _configurable  = _model.Configurable ?? false;
+        _selectedOrgId = _model.BoardingOrganizationId;
+        _statusMessage = string.Empty;
+    }
+
+    private void LoadFromJson()
+    {
+        if (string.IsNullOrWhiteSpace(_jsonInput)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(_jsonInput);
+            var root = doc.RootElement;
+
+            var orgInfo = root.TryGetProperty("organizationInformation", out var oi) ? oi : (JsonElement?)null;
+            var regInfo = root.TryGetProperty("registrationInformation", out var ri) ? ri : (JsonElement?)null;
+            var busInfo = orgInfo?.TryGetProperty("businessInformation", out var bi) == true ? bi : (JsonElement?)null;
+
+            _model.TransactingOrganizationId = orgInfo?.TryGetProperty("organizationId", out var v)   == true ? v.GetString()  : _model.TransactingOrganizationId;
+            _model.Status                    = orgInfo?.TryGetProperty("status", out var v2)           == true ? v2.GetString() : _model.Status;
+            _model.BoardingPackageId         = regInfo?.TryGetProperty("boardingPackageId", out var v3) == true ? v3.GetString() : _model.BoardingPackageId;
+
+            if (busInfo.HasValue)
+            {
+                var b = busInfo.Value;
+                _model.BusinessName         = b.TryGetProperty("name", out var n)              ? n.GetString()   : _model.BusinessName;
+                _model.WebsiteUrl           = b.TryGetProperty("websiteUrl", out var wu)        ? wu.GetString()  : _model.WebsiteUrl;
+                _model.BusinessPhoneNumber  = b.TryGetProperty("phoneNumber", out var ph)       ? ph.GetString()  : _model.BusinessPhoneNumber;
+                _model.TimeZone             = b.TryGetProperty("timeZone", out var tz)          ? tz.GetString()  : _model.TimeZone;
+                _model.MerchantCategoryCode = b.TryGetProperty("merchantCategoryCode", out var mcc) ? mcc.GetString() : _model.MerchantCategoryCode;
+
+                if (b.TryGetProperty("address", out var addr))
+                {
+                    _model.AddressCountry     = addr.TryGetProperty("country", out var c)            ? c.GetString()  : _model.AddressCountry;
+                    _model.Address1           = addr.TryGetProperty("address1", out var a1)           ? a1.GetString() : _model.Address1;
+                    _model.PostalCode         = addr.TryGetProperty("postalCode", out var pc)         ? pc.GetString() : _model.PostalCode;
+                    _model.AdministrativeArea = addr.TryGetProperty("administrativeArea", out var aa) ? aa.GetString() : _model.AdministrativeArea;
+                    _model.Locality           = addr.TryGetProperty("locality", out var loc)          ? loc.GetString() : _model.Locality;
+                }
+            }
+
+            TryDetectProcessor(root);
+
+            _statusMessage = "JSON loaded successfully.";
+            _isError = false;
+            _jsonInput = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = $"Invalid JSON: {ex.Message}";
+        }
+    }
+
+    private void TryDetectProcessor(JsonElement root)
+    {
+        var processors = TryNavigatePath(root, "productInformation", "selectedProducts", "payments",
+            "cardProcessing", "configurationInformation", "configurations", "common", "processors");
+        if (processors.HasValue)
+        {
+            if (processors.Value.TryGetProperty("vdcvantiv", out _)) _model.BoardingProcessor = "vdcvantiv";
+            else if (processors.Value.TryGetProperty("fdiglobal", out _)) _model.BoardingProcessor = "fdiglobal";
+        }
+    }
+
+    private JsonElement? TryNavigatePath(JsonElement root, params string[] keys)
+    {
+        JsonElement current = root;
+        foreach (var key in keys)
+        {
+            if (!current.TryGetProperty(key, out var next)) return null;
+            current = next;
+        }
+        return current;
+    }
+
+    private async Task OnSuppMerchantChangedAsync()
+    {
+        _suppLinks.Clear();
+        _suppSubscriptionId = 0;
+        if (_suppLinkMerchantId == 0) return;
+        await LoadSuppLinksAsync();
+    }
+
+    private async Task OnSuppProductChangedAsync()
+    {
+        _suppSubscriptionId = 0;
+        await LoadSuppRowsAsync();
+    }
+
+    private async Task LoadSuppRowsAsync()
+    {
+        _suppRows.Clear();
+        switch (_suppProductType)
+        {
+            case BoardingProductTypes.DigitalPayments:
+            {
+                var r = await CallMinAPIs.GetAllDigitalPaymentsAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _suppRows = (r.Data ?? new()).Select(x => (x.BoardingDigitalPaymentsSubscriptionId,
+                    $"enabled={x.Enabled}, samsung={x.SamsungPayEnabled}, apple={x.ApplePayEnabled}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.CustomerInvoicing:
+            {
+                var r = await CallMinAPIs.GetAllInvoicingAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _suppRows = (r.Data ?? new()).Select(x => (x.BoardingInvoicingSubscriptionId,
+                    $"enabled={x.Enabled}, status={x.EnablementStatus}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.PayByLink:
+            {
+                var r = await CallMinAPIs.GetAllPayByLinkAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _suppRows = (r.Data ?? new()).Select(x => (x.BoardingPayByLinkSubscriptionId,
+                    $"enabled={x.Enabled}, status={x.EnablementStatus}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.UnifiedCheckout:
+            {
+                var r = await CallMinAPIs.GetAllUnifiedCheckoutAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _suppRows = (r.Data ?? new()).Select(x => (x.BoardingUnifiedCheckoutSubscriptionId,
+                    $"enabled={x.Enabled}, networks={x.AllowedCardNetworks.Count}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.ValueAddedServices:
+            {
+                var r = await CallMinAPIs.GetAllValueAddedServicesAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _suppRows = (r.Data ?? new()).Select(x => (x.BoardingValueAddedServicesSubscriptionId,
+                    $"search={x.TransactionSearchEnabled}, reporting={x.ReportingEnabled}, dispute={x.DisputeManagementEnabled}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.VirtualTerminal:
+            {
+                var r = await CallMinAPIs.GetAllVirtualTerminalAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _suppRows = (r.Data ?? new()).Select(x => (x.BoardingVirtualTerminalSubscriptionId,
+                    $"enabled={x.Enabled}, country={x.MerchantCountry}, type={x.CardProcessingType}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.PayerAuthentication:
+            {
+                var r = await CallMinAPIs.GetAllPayerAuthenticationAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _suppRows = (r.Data ?? new()).Select(x => (x.BoardingPayerAuthenticationSubscriptionId,
+                    $"enabled={x.Enabled}, template={x.TemplateId}, cardTypes={x.CardTypeConfigs.Count}")).ToList();
+                break;
+            }
+        }
+    }
+
+    private async Task LoadSuppLinksAsync()
+    {
+        _suppLinks.Clear();
+        if (_suppLinkMerchantId == 0) return;
+        var r = await CallMinAPIs.GetProductLinksByMerchantAsync(_suppLinkMerchantId);
+        if (r.Error is not null) { _isError = true; _statusMessage = $"Failed to load supplemental links: {r.Error.Message}"; return; }
+        _suppLinks = r.Data ?? new();
+    }
+
+    private async Task SuppLinkAsync()
+    {
+        _suppLinking = true;
+        try
+        {
+            var dto = new BoardingTransactingMerchantProductSubscriptionDto
+            {
+                BoardingTransactingMerchantId = _suppLinkMerchantId,
+                ProductType                   = _suppProductType,
+                ProductSubscriptionId         = _suppSubscriptionId
+            };
+            var r = await CallMinAPIs.LinkProductSubscriptionAsync(dto);
+            if (r.Error is not null) { _isError = true; _statusMessage = $"Link error: {r.Error.Message}"; return; }
+            _isError = false;
+            _statusMessage = $"{_suppProductType} subscription {_suppSubscriptionId} linked to merchant {_suppLinkMerchantId}.";
+            _suppSubscriptionId = 0;
+            await LoadSuppLinksAsync();
+        }
+        finally { _suppLinking = false; }
+    }
+
+    private async Task SuppUnlinkAsync(int junctionId)
+    {
+        var r = await CallMinAPIs.UnlinkProductSubscriptionAsync(junctionId);
+        _isError = !r.IsSuccess;
+        _statusMessage = r.Error is not null
+            ? $"Failed to unlink link {junctionId}: {r.Error.Message}"
+            : $"Link {junctionId} removed.";
+        await LoadSuppLinksAsync();
+    }
+
+    private void ResetForm()
+    {
+        _model        = new BoardingTransactingMerchantDto { Type = "TRANSACTING" };
+        _configurable = false;
+        _selectedOrgId = 0;
+        _jsonInput    = string.Empty;
+    }
+}

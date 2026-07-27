@@ -1,0 +1,105 @@
+@implements IDisposable
+
+<div class="store-hero-slider position-relative overflow-hidden" style="height: 600px;">
+    @for (int i = 0; i < _slides.Count; i++)
+    {
+        var slide = _slides[i];
+        var isActive = i == _currentSlide;
+        <div class="store-hero-slide @(isActive ? "active" : "")"
+             style="background: @(slide.Theme == "hero-dark" ? "#1a1a1a" : "#f5f5f5");
+                    color: @(slide.Theme == "hero-dark" ? "white" : "#1a1a1a");">
+            <div class="container h-100">
+                <div class="row h-100 align-items-center">
+                    <div class="col-md-6">
+                        <p class="fs-6 fw-light mb-2 opacity-75">@slide.Eyebrow</p>
+                        <h1 class="display-3 fw-light" style="letter-spacing: -2px;">
+                            @slide.TitleNormal <strong class="fw-bold">@slide.TitleBold</strong>
+                        </h1>
+                        <p class="lead fw-light opacity-75 mb-4">@slide.Subtitle</p>
+                        <a href="@($"/store/category/{slide.Slug}")"
+                           class="btn @(slide.Theme == "hero-dark" ? "btn-outline-light" : "btn-outline-dark") px-4 py-2">
+                            Shop Now
+                        </a>
+                    </div>
+                    <div class="col-md-6 text-center">
+                        <img src="@slide.ImageUrl"
+                             alt="@($"{slide.TitleNormal} {slide.TitleBold}")"
+                             class="img-fluid store-hero-img"
+                             loading="@(isActive ? "eager" : "lazy")" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <button class="store-hero-nav store-hero-prev" @onclick="PrevSlide">
+        <i class="bi bi-chevron-left"></i>
+        <span class="visually-hidden">Previous</span>
+    </button>
+    <button class="store-hero-nav store-hero-next" @onclick="NextSlide">
+        <i class="bi bi-chevron-right"></i>
+        <span class="visually-hidden">Next</span>
+    </button>
+</div>
+
+@code {
+    private int _currentSlide;
+    private Timer? _autoTimer;
+
+    private readonly List<HeroSlide> _slides =
+    [
+        new("Pro.Beyond.", "MobileFirst", "Pro",
+            "Created to change everything for the better. For everyone.",
+            "/images/hero/MobileFirst.svg",
+            "hero-dark",
+            "phones"),
+        new("The next level.", "GameConsole", "MAX 7",
+            "Incredibly powerful CPUs, GPUs, and an SSD. Redefine your experience.",
+            "/images/hero/GameConsole.svg",
+            "hero-light",
+            "gaming"),
+        new("Work. Create. Play.", "LexBook", "Pro",
+            "The new 15-inch LexBook Pro makes room for more of what you love.",
+            "/images/hero/LexBookPro.svg",
+            "hero-light",
+            "laptops"),
+    ];
+
+    protected override void OnInitialized()
+    {
+        _autoTimer = new Timer(AutoAdvance, null, 5000, 5000);
+    }
+
+    private void AutoAdvance(object? state)
+    {
+        _currentSlide = (_currentSlide + 1) % _slides.Count;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void NextSlide()
+    {
+        _currentSlide = (_currentSlide + 1) % _slides.Count;
+        _autoTimer?.Change(5000, 5000);
+    }
+
+    private void PrevSlide()
+    {
+        _currentSlide = (_currentSlide - 1 + _slides.Count) % _slides.Count;
+        _autoTimer?.Change(5000, 5000);
+    }
+
+    public void Dispose()
+    {
+        _autoTimer?.Dispose();
+    }
+
+    private record HeroSlide(
+        string Eyebrow,
+        string TitleNormal,
+        string TitleBold,
+        string Subtitle,
+        string ImageUrl,
+        string Theme,
+        string Slug
+    );
+}

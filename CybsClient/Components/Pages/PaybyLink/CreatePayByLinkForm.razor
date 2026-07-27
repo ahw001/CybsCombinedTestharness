@@ -1,0 +1,249 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/paybylink/create"
+
+@inject IJSRuntime JS
+@inject ISessionTransactions sessionTransactions
+@inject NavigationManager Navigation
+
+@using CybsClient.Model.DBQueries
+@using CybsClient.Services.DTOs
+@using CybsClient.Services.Utilities
+@using CybsClient.Model.Cybersource.Transactions
+@using CybsClient.Model.Cybersource.BaseData
+@using CybsClient.Services.DIServices
+@using CybsClient.Services.ErrorHandling
+@using System.Text.Json
+@using System.Text.Json.Nodes
+
+<title>Pay by Link — Create</title>
+
+<div class="py-1 text-center">
+    <h2>Create Pay by Link</h2>
+</div>
+
+<hr class="my-4">
+
+@if (successResult is not null)
+{
+    <div class="alert alert-success" role="alert">
+        <h5 class="alert-heading">Payment Link Created!</h5>
+        <p class="mb-1"><strong>Customer:</strong> @successResult.CustomerName</p>
+        <p class="mb-1"><strong>Amount:</strong> @successResult.TotalAmount?.ToString("C") @successResult.Currency</p>
+        <p class="mb-1"><strong>Status:</strong> <span class="badge bg-success">@successResult.Status</span></p>
+        <hr>
+        <p class="mb-1"><strong>Payment Link:</strong></p>
+        <div class="input-group mb-2">
+            <input id="paymentLinkInput" type="text" class="form-control" readonly value="@successResult.PaymentLink" />
+            <button class="btn btn-outline-secondary" type="button" @onclick="CopyToClipboard">
+                <i class="bi bi-clipboard me-1"></i> Copy
+            </button>
+        </div>
+        @if (copiedMessage is not null)
+        {
+            <small class="text-success">@copiedMessage</small>
+        }
+        <hr>
+        <a href="/paybylink/list" class="btn btn-primary">View All Pay by Link Records</a>
+        <button class="btn btn-outline-secondary ms-2" @onclick="ResetForm">Create Another</button>
+    </div>
+}
+else
+{
+    <div class="row g-4">
+
+        <!-- Customer Details Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header fw-semibold">Customer Details</div>
+                <div class="card-body">
+                    @if (isLoading)
+                    {
+                        <div class="text-muted">Loading sample customer...</div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <label class="form-label">Customer Name</label>
+                            <input type="text" class="form-control" @bind="customerName" placeholder="Full name" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" @bind="email" placeholder="customer@example.com" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Phone</label>
+                            <input type="text" class="form-control" @bind="phone" placeholder="+1 555-000-0000" />
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment Details Card -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header fw-semibold">Payment Details</div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Product / Description</label>
+                        <input type="text" class="form-control" @bind="productName" placeholder="e.g. Order #1001" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Amount (USD)</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="number" class="form-control" @bind="totalAmount" step="0.01" min="0.01" placeholder="0.00" />
+                            <span class="input-group-text">USD</span>
+                        </div>
+                    </div>
+
+                    @if (errorMessage is not null)
+                    {
+                        <div class="alert alert-danger py-2" role="alert">@errorMessage</div>
+                    }
+
+                    <button class="btn btn-primary w-100" @onclick="Submit" disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        Create Pay by Link
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+}
+
+<footer class="my-5 pt-5 text-body-secondary text-center text-small">
+    <p class="mb-1">&copy; 2017–2025 Company Name</p>
+</footer>
+
+@code {
+    private string? customerName;
+    private string? email;
+    private string? phone;
+    private string? productName = "Sample Payment";
+    private decimal? totalAmount = 50.00m;
+    private bool isLoading = true;
+    private bool isSubmitting = false;
+    private string? errorMessage;
+    private string? copiedMessage;
+    private PayByLinkTransactionDto? successResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(
+                "{}", sessionTransactions, CcTransactionTypes.RANDOM_CUSTOMER);
+
+            if (sessionResponse?.TransactionJson is not null
+                && sessionResponse.JsonTransactionStateValues == TransactionStateValues.Complete)
+            {
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var customer = JsonSerializer.Deserialize<DBSampleCustomerDatum>(
+                    sessionResponse.TransactionJson, options);
+
+                if (customer is not null)
+                {
+                    customerName = $"{customer.FirstName} {customer.LastName}".Trim();
+                    email = customer.Email;
+                    phone = customer.Phone;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[PayByLink] Failed to load sample customer: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task Submit()
+    {
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(customerName))
+        {
+            errorMessage = "Customer name is required.";
+            return;
+        }
+
+        if (totalAmount is null || totalAmount <= 0)
+        {
+            errorMessage = "Amount must be greater than zero.";
+            return;
+        }
+
+        isSubmitting = true;
+        StateHasChanged();
+
+        try
+        {
+            var dto = new PayByLinkRequestDto
+            {
+                CustomerName = customerName,
+                Email = email,
+                Phone = phone,
+                DeliveryMethod = "clipboard",
+                TotalAmount = totalAmount,
+                Currency = "USD",
+                ProductName = productName
+            };
+
+            ApiResult<PayByLinkTransactionDto> result = await CallMinAPIs.CreatePayByLinkAsync(dto);
+
+            if (!result.IsSuccess || result.Error is not null)
+            {
+                var errResponse = new SessionTransJson
+                {
+                    JsonTransactionStateValues = TransactionStateValues.Error,
+                    error = result.Error?.Message ?? "Pay by Link creation failed.",
+                    TransactionStatus = "error"
+                };
+                sessionTransactions.AddTrans(errResponse);
+                Navigation.NavigateTo("/errorhandler");
+                return;
+            }
+
+            successResult = result.Data;
+        }
+        catch (Exception ex)
+        {
+            var errResponse = new SessionTransJson
+            {
+                JsonTransactionStateValues = TransactionStateValues.Error,
+                error = ex.Message,
+                TransactionStatus = "error"
+            };
+            sessionTransactions.AddTrans(errResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task CopyToClipboard()
+    {
+        if (successResult?.PaymentLink is not null)
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", successResult.PaymentLink);
+            copiedMessage = "Copied to clipboard!";
+            StateHasChanged();
+        }
+    }
+
+    private void ResetForm()
+    {
+        successResult = null;
+        copiedMessage = null;
+        errorMessage = null;
+    }
+}

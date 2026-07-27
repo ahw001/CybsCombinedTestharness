@@ -1,0 +1,251 @@
+@page "/store/product-manager"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using CybsClient.Services.Utilities
+@using CybsClient.Model.CyberStore
+
+<PageTitle>Product Manager – CyberStore</PageTitle>
+
+<style>
+    .product-thumb img {
+        max-width: 48px;
+        max-height: 48px;
+        object-fit: contain;
+        display: block;
+    }
+</style>
+
+<StoreNavBar />
+
+<div class="container py-5">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <h1 class="display-5 fw-light mb-0" style="letter-spacing: -1px;">
+            Product <strong class="fw-bold">Manager</strong>
+        </h1>
+        <button class="btn btn-dark" @onclick="ShowAddForm">
+            <i class="bi bi-plus-lg me-1"></i> New Product
+        </button>
+    </div>
+
+    @if (_statusMessage is not null)
+    {
+        <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible fade show" role="alert">
+            @_statusMessage
+            <button type="button" class="btn-close" @onclick="() => _statusMessage = null"></button>
+        </div>
+    }
+
+    @if (_showForm)
+    {
+        <div class="card border-0 bg-light mb-4 p-4">
+            <h5 class="mb-3">
+                @(_editProduct.ElectronicProductId == 0
+                    ? "Add New Product"
+                    : $"Edit Product #{_editProduct.ElectronicProductId}")
+            </h5>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label small fw-medium">Product Name</label>
+                    <input class="form-control" @bind="_editProduct.ProductName" placeholder="Product name" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small fw-medium">Product Label</label>
+                    <input class="form-control" @bind="_editProduct.ProductLabel" placeholder="Human-readable label" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-medium">Unit Price</label>
+                    <input type="number" class="form-control" @bind="_editProduct.UnitPrice"
+                           placeholder="0.00" step="0.01" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-medium">SKU</label>
+                    <input class="form-control" @bind="_editProduct.ProductSku" placeholder="SKU" />
+                </div>
+                <div class="col-12">
+                    <label class="form-label small fw-medium">Picture (SVG markup or URL)</label>
+                    <textarea class="form-control font-monospace" rows="5"
+                              @bind="_editProduct.Picture"
+                              placeholder="Paste SVG markup or image URL here..."></textarea>
+                </div>
+                <div class="col-12 d-flex gap-2">
+                    <button class="btn btn-dark" @onclick="SaveProduct" disabled="@_saving">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        @(_editProduct.ElectronicProductId == 0 ? "Create" : "Save Changes")
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="CancelForm">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_loading)
+    {
+        <div class="d-flex justify-content-center py-5">
+            <div class="spinner-border text-dark" role="status">
+                <span class="visually-hidden">Loading…</span>
+            </div>
+        </div>
+    }
+    else if (_products.Count == 0)
+    {
+        <p class="text-muted">No products found.</p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>ID</th>
+                        <th>Product Name</th>
+                        <th>Label</th>
+                        <th>SKU</th>
+                        <th>Price</th>
+                        <th>Picture</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var product in _products)
+                    {
+                        <tr @key="product.ElectronicProductId">
+                            <td class="text-muted small">@product.ElectronicProductId</td>
+                            <td class="fw-medium">@product.ProductName</td>
+                            <td>@(product.ProductLabel ?? "–")</td>
+                            <td class="text-muted small">@(product.ProductSku ?? "–")</td>
+                            <td>@(product.UnitPrice.HasValue ? $"${product.UnitPrice.Value:N2}" : "–")</td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(product.Picture))
+                                {
+                                    <div class="product-thumb">
+                                        @PictureHelper.RenderProductImage(product.Picture,
+                                            "max-width:48px;max-height:48px;object-fit:contain;")
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">–</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-dark me-1"
+                                        @onclick="() => EditProduct(product)"
+                                        title="Edit">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => DeleteProduct(product.ElectronicProductId)"
+                                        title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<StoreFooter />
+
+@code {
+    private List<ElectronicProduct> _products = [];
+    private ElectronicProduct _editProduct = new();
+    private bool _loading = true;
+    private bool _showForm = false;
+    private bool _saving = false;
+    private string? _statusMessage;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProductsAsync();
+    }
+
+    private async Task LoadProductsAsync()
+    {
+        _loading = true;
+        var result = await CallMinAPIs.GetElectronicProductsAsync();
+        _products = result.Data ?? new();
+        if (result.Error is not null)
+        {
+            _isError = true;
+            _statusMessage = $"Failed to load products: {result.Error.Message}";
+        }
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private void ShowAddForm()
+    {
+        _editProduct = new ElectronicProduct();
+        _showForm = true;
+        _statusMessage = null;
+    }
+
+    private void EditProduct(ElectronicProduct product)
+    {
+        _editProduct = new ElectronicProduct
+        {
+            ElectronicProductId = product.ElectronicProductId,
+            ProductName = product.ProductName,
+            ProductLabel = product.ProductLabel,
+            UnitPrice = product.UnitPrice,
+            ProductSku = product.ProductSku,
+            Picture = product.Picture
+        };
+        _showForm = true;
+        _statusMessage = null;
+    }
+
+    private void CancelForm()
+    {
+        _showForm = false;
+        _editProduct = new ElectronicProduct();
+    }
+
+    private async Task SaveProduct()
+    {
+        _saving = true;
+        _statusMessage = null;
+
+        if (_editProduct.ElectronicProductId == 0)
+        {
+            var result = await CallMinAPIs.CreateElectronicProductAsync(_editProduct);
+            _isError = !result.IsSuccess;
+            _statusMessage = result.Error is not null
+                ? $"Failed to create product: {result.Error.Message}"
+                : $"Product '{result.Data?.ProductName}' created successfully.";
+        }
+        else
+        {
+            var result = await CallMinAPIs.UpdateElectronicProductAsync(
+                _editProduct.ElectronicProductId, _editProduct);
+            _isError = !result.IsSuccess;
+            _statusMessage = result.Error is not null
+                ? $"Failed to update product: {result.Error.Message}"
+                : "Product updated successfully.";
+        }
+
+        _saving = false;
+
+        if (!_isError)
+        {
+            _showForm = false;
+            await LoadProductsAsync();
+        }
+    }
+
+    private async Task DeleteProduct(int id)
+    {
+        var result = await CallMinAPIs.DeleteElectronicProductAsync(id);
+        _isError = !result.IsSuccess;
+        _statusMessage = result.Error is not null
+            ? $"Failed to delete product: {result.Error.Message}"
+            : "Product deleted.";
+        if (result.IsSuccess) await LoadProductsAsync();
+    }
+}

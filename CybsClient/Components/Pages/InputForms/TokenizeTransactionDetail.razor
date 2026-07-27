@@ -1,0 +1,284 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/tokenize-transactions/{Id:int}"
+
+@inject NavigationManager Navigation
+
+@using CybsClient.Services.DTOs
+@using CybsClient.Services.Utilities
+@using System.Text.Json
+@using System.Text.Json.Nodes
+
+<title>Tokenize Transaction</title>
+
+<div class="py-1 text-center">
+    <h2>Tokenize Transaction Detail</h2>
+</div>
+
+<hr class="my-4">
+
+<div class="mb-3">
+    <a href="/tokenize-transactions" class="btn btn-outline-secondary btn-sm">
+        &lsaquo; Back to list
+    </a>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-muted py-3"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading…</div>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-danger">@loadError</div>
+}
+else if (record is null)
+{
+    <div class="alert alert-warning">Transaction @Id not found.</div>
+}
+else
+{
+    <div class="card mb-4">
+        <div class="card-header fw-semibold">Transaction Summary</div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tbody>
+                    <tr>
+                        <th scope="row" class="w-25">ID</th>
+                        <td>@record.TokenizeTransactionId</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Created (UTC)</th>
+                        <td>@record.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Mode</th>
+                        <td><span class="badge @GetModeBadge(record.EndpointMode)">@record.EndpointMode</span></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Token ID</th>
+                        <td><span class="font-monospace">@(record.TokenId ?? "—")</span></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">State</th>
+                        <td><span class="badge @GetStateBadge(record.TokenState)">@(record.TokenState ?? "—")</span></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Network Token Number</th>
+                        <td><span class="font-monospace">@(record.NetworkTokenNumber ?? "—")</span></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Card Type</th>
+                        <td>@(record.CardType ?? "—")</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Card Suffix</th>
+                        <td>@(record.RequestCardSuffix is not null ? $"••••{record.RequestCardSuffix}" : "—")</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Expiry</th>
+                        <td>@(record.ExpMonth is not null ? $"{record.ExpMonth}/{record.ExpYear}" : "—")</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Payment Account Reference</th>
+                        <td><span class="font-monospace small">@(record.PaymentAccountReference ?? "—")</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <details class="mb-4">
+        <summary class="text-muted small">Raw tokenize response JSON</summary>
+        <pre class="small bg-light p-2 mt-1 overflow-auto">@record.ResponseTransactionJson</pre>
+    </details>
+
+    <div class="card mb-4">
+        <div class="card-header fw-semibold">Payment Credentials</div>
+        <div class="card-body">
+            @if (string.IsNullOrWhiteSpace(record.TokenId))
+            {
+                <div class="alert alert-warning mb-0">No Token ID stored — cannot generate payment credentials.</div>
+            }
+            else
+            {
+                <p class="text-muted small mb-3">
+                    Calls <code>POST /tms/v2/tokens/{tokenId}/payment-credentials</code> with
+                    <code>paymentCredentialType=CRYPTOGRAM</code> and <code>transactionType=ECOM</code>.
+                    Response is a JWE BLOB decrypted server-side (System-2 / Legacy MLE).
+                </p>
+                <button class="btn btn-success" @onclick="GenerateCredentials" disabled="@isGenerating">
+                    @if (isGenerating)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                    }
+                    Generate Payment Credentials
+                </button>
+
+                @if (credentialError is not null)
+                {
+                    <div class="alert alert-danger mt-3">@credentialError</div>
+                }
+
+                @if (credentialsResult is not null)
+                {
+                    <div class="mt-3">
+                        <h6>Decrypted Payment Credential</h6>
+                        <table class="table table-bordered table-sm">
+                            <tbody>
+                                <tr>
+                                    <th scope="row" class="w-35">Cryptogram (CAVV)</th>
+                                    <td>
+                                        <span class="font-monospace small">
+                                            @(credentialsResult["tokenizedCard"]?["cryptogram"]?.ToString() ?? "—")
+                                        </span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">ECI Value</th>
+                                    <td>@(credentialsResult["tokenizedCard"]?["eciRaw"]?.ToString() ?? "—")</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Token Number (masked)</th>
+                                    <td><span class="font-monospace">@(credentialsResult["tokenizedCard"]?["number"]?.ToString() ?? "—")</span></td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Token Expiry</th>
+                                    <td>
+                                        @{
+                                            var expM = credentialsResult["tokenizedCard"]?["expirationMonth"]?.ToString();
+                                            var expY = credentialsResult["tokenizedCard"]?["expirationYear"]?.ToString();
+                                        }
+                                        @(expM is not null ? $"{expM}/{expY}" : "—")
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Card Type</th>
+                                    <td>@(credentialsResult["tokenizedCard"]?["type"]?.ToString() ?? "—")</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">State</th>
+                                    <td>@(credentialsResult["tokenizedCard"]?["state"]?.ToString() ?? "—")</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Masked PAN</th>
+                                    <td><span class="font-monospace">@(credentialsResult["card"]?["number"]?.ToString() ?? "—")</span></td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">PAR</th>
+                                    <td><span class="font-monospace small">@(credentialsResult["issuer"]?["paymentAccountReference"]?.ToString() ?? "—")</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <details>
+                            <summary class="text-muted small">Raw payment credentials JSON</summary>
+                            <pre class="small bg-light p-2 mt-1 overflow-auto">@rawCredentialsJson</pre>
+                        </details>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+}
+
+<footer class="my-5 pt-5 text-body-secondary text-center text-small">
+    <p class="mb-1">&copy; 2017–2024 Company Name</p>
+</footer>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private TokenizeTransactionDto? record;
+    private bool isLoading = true;
+    private string? loadError;
+
+    private bool isGenerating = false;
+    private string? credentialError;
+    private JsonNode? credentialsResult;
+    private string? rawCredentialsJson;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading        = true;
+        loadError        = null;
+        record           = null;
+        credentialsResult = null;
+        credentialError  = null;
+        rawCredentialsJson = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await CallMinAPIs.GetTokenizeTransactionByIdAsync(Id);
+
+            if (!result.IsSuccess || result.Error is not null)
+            {
+                loadError = result.Error?.Message ?? "Failed to load transaction.";
+            }
+            else if (result.Data is not null)
+            {
+                if (result.Data.Error is not null)
+                    loadError = result.Data.Error.Message;
+                else
+                    record = result.Data;
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task GenerateCredentials()
+    {
+        if (record?.TokenId is null) return;
+
+        isGenerating     = true;
+        credentialError  = null;
+        credentialsResult = null;
+        rawCredentialsJson = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await CallMinAPIs.GeneratePaymentCredentialsAsync(record.TokenId);
+
+            if (!result.IsSuccess || result.Error is not null)
+            {
+                credentialError = result.Error?.Message ?? "Payment credentials request failed.";
+            }
+            else if (result.ResponseJson is not null)
+            {
+                credentialsResult  = result.ResponseJson;
+                rawCredentialsJson = result.ResponseJson.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            credentialError = ex.Message;
+        }
+        finally
+        {
+            isGenerating = false;
+        }
+    }
+
+    private static string GetModeBadge(string? mode) =>
+        mode switch
+        {
+            "tokenized-cards-mle" => "bg-info text-dark",
+            "tokenized-cards"     => "bg-primary",
+            _                     => "bg-secondary"
+        };
+
+    private static string GetStateBadge(string? state) =>
+        state?.ToUpperInvariant() switch
+        {
+            "ACTIVE"   => "bg-success",
+            "INACTIVE" => "bg-secondary",
+            "FAILED"   => "bg-danger",
+            _          => "bg-light text-dark border"
+        };
+}

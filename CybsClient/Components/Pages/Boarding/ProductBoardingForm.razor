@@ -1,0 +1,1025 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/productboarding"
+
+@using CybsClient.Model.Cybersource.Boarding
+@using CybsClient.Services.Utilities
+@using System.Text.Json
+@using System.Text.Json.Nodes
+
+@inject NavigationManager Navigation
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/boarding/dashboard">Boarding Dashboard</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Individual Product Boarding</li>
+    </ol>
+</nav>
+<h2>Individual Product Boarding</h2>
+<p class="text-muted">
+    Board supplemental (non-card) products. Pick a product, paste the base JSON to populate fields,
+    save, then link one or more Transacting Merchants via the many-to-many junction.
+</p>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible">
+        @_statusMessage
+        <button type="button" class="btn-close" @onclick="() => _statusMessage = string.Empty"></button>
+    </div>
+}
+
+<div class="card mb-3">
+    <div class="card-header"><b>Product Selection</b></div>
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-md-6">
+                <label class="form-label">Product</label>
+                <select class="form-select" @bind="_selectedProductType" @bind:after="OnProductChangedAsync">
+                    @foreach (var p in _products)
+                    {
+                        <option value="@p.Key">@p.Label</option>
+                    }
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_selectedProductType != BoardingProductTypes.TokenManagement)
+{
+    <div class="card mb-3">
+        <div class="card-header"><b>Load from Base JSON</b></div>
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-10">
+                    <textarea class="form-control font-monospace" rows="6"
+                              placeholder="Paste the product's base JSON (e.g. digital_payments_base.json, virtual_terminal_base.json, ...)"
+                              @bind="_jsonInput"></textarea>
+                </div>
+                <div class="col-2 d-flex align-items-center">
+                    <button class="btn btn-outline-secondary w-100" @onclick="LoadFromJson">Load JSON</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ─── Product-specific editor ───────────────────────────────────────────── *@
+
+@if (_selectedProductType == BoardingProductTypes.DigitalPayments)
+{
+    <div class="card mb-3">
+        <div class="card-header"><b>Digital Payments</b></div>
+        <div class="card-body">
+            @RenderBasicFields(_digitalPayments)
+            <div class="form-check form-switch mb-2">
+                <input type="checkbox" class="form-check-input" id="samsung" @bind="_samsungPay" />
+                <label class="form-check-label" for="samsung">Samsung Pay Enabled</label>
+            </div>
+            <div class="form-check form-switch mb-2">
+                <input type="checkbox" class="form-check-input" id="apple" @bind="_applePay" />
+                <label class="form-check-label" for="apple">Apple Pay Enabled</label>
+            </div>
+        </div>
+    </div>
+}
+else if (_selectedProductType == BoardingProductTypes.CustomerInvoicing)
+{
+    <div class="card mb-3">
+        <div class="card-header"><b>Customer Invoicing</b></div>
+        <div class="card-body">@RenderBasicFields(_invoicing)</div>
+    </div>
+}
+else if (_selectedProductType == BoardingProductTypes.PayByLink)
+{
+    <div class="card mb-3">
+        <div class="card-header"><b>Pay By Link</b></div>
+        <div class="card-body">@RenderBasicFields(_payByLink)</div>
+    </div>
+}
+else if (_selectedProductType == BoardingProductTypes.TokenManagement)
+{
+    <div class="card mb-3">
+        <div class="card-header"><b>Token Management</b></div>
+        <div class="card-body">
+            <p class="mb-2">
+                Token Management / Network Token boarding has moved to a dedicated page, scoped to exactly
+                the fields CyberSource's PECS NT-enablement JSON requires. It is configured and submitted
+                per merchant, not created and linked here like the other products.
+            </p>
+            <p class="text-muted small mb-3">
+                Go to the Boarding Dashboard and click <strong>Configure NT</strong> next to a transacting
+                merchant to configure and submit Network Token boarding for that merchant.
+            </p>
+            <a class="btn btn-outline-primary" href="/boarding/dashboard">Go to Dashboard</a>
+        </div>
+    </div>
+}
+else if (_selectedProductType == BoardingProductTypes.UnifiedCheckout)
+{
+    <div class="card mb-3">
+        <div class="card-header"><b>Unified Checkout</b></div>
+        <div class="card-body">
+            @RenderBasicFields(_unifiedCheckout)
+            <hr />
+            <label class="form-label">Allowed Card Networks (one per line)</label>
+            <textarea class="form-control font-monospace mb-3" rows="4" @bind="_allowedCardNetworksText"></textarea>
+            <h6>Features</h6>
+            <div class="row g-2">
+                <div class="col-md-4"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="ucApple" @bind="_ucApplePay" /><label class="form-check-label" for="ucApple">Apple Pay Enabled</label></div></div>
+                <div class="col-md-4"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="ucClick" @bind="_ucClickToPay" /><label class="form-check-label" for="ucClick">Click to Pay Enabled</label></div></div>
+                <div class="col-md-4"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="ucEcheck" @bind="_ucECheck" /><label class="form-check-label" for="ucEcheck">eCheck Enabled</label></div></div>
+                <div class="col-md-4"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="ucGoogle" @bind="_ucGooglePay" /><label class="form-check-label" for="ucGoogle">Google Pay Enabled</label></div></div>
+                <div class="col-md-4"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="ucDm" @bind="_ucDecisionMgr" /><label class="form-check-label" for="ucDm">Decision Manager Enabled</label></div></div>
+                <div class="col-md-4"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="ucPa" @bind="_ucPayerAuth" /><label class="form-check-label" for="ucPa">Payer Authentication Enabled</label></div></div>
+                <div class="col-md-4"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="ucTm" @bind="_ucTokenMgmt" /><label class="form-check-label" for="ucTm">Token Management Enabled</label></div></div>
+            </div>
+        </div>
+    </div>
+}
+else if (_selectedProductType == BoardingProductTypes.ValueAddedServices)
+{
+    <div class="card mb-3">
+        <div class="card-header"><b>Value Added Services</b></div>
+        <div class="card-body">
+            <h6>Transaction Search</h6>
+            <div class="form-check form-switch mb-2">
+                <input type="checkbox" class="form-check-input" id="vasTsEn" @bind="_vasTsEnabled" />
+                <label class="form-check-label" for="vasTsEn">Enabled</label>
+            </div>
+            <div class="row g-2 mb-3">
+                <div class="col-md-4"><label class="form-label">Enablement Status</label><input class="form-control" @bind="_vas.TransactionSearchEnablementStatus" /></div>
+                <div class="col-md-4"><label class="form-label">Self Serviceability</label><input class="form-control" @bind="_vas.TransactionSearchSelfServiceability" /></div>
+                <div class="col-md-4"><label class="form-label">Distributability</label><input class="form-control" @bind="_vas.TransactionSearchDistributability" /></div>
+            </div>
+            <h6>Reporting</h6>
+            <div class="form-check form-switch mb-2">
+                <input type="checkbox" class="form-check-input" id="vasRpEn" @bind="_vasReportingEnabled" />
+                <label class="form-check-label" for="vasRpEn">Enabled</label>
+            </div>
+            <div class="row g-2 mb-3">
+                <div class="col-md-4"><label class="form-label">Enablement Status</label><input class="form-control" @bind="_vas.ReportingEnablementStatus" /></div>
+                <div class="col-md-4"><label class="form-label">Self Serviceability</label><input class="form-control" @bind="_vas.ReportingSelfServiceability" /></div>
+                <div class="col-md-4"><label class="form-label">Distributability</label><input class="form-control" @bind="_vas.ReportingDistributability" /></div>
+            </div>
+            <div class="form-check form-switch mb-2">
+                <input type="checkbox" class="form-check-input" id="vasDm" @bind="_vasDisputeEnabled" />
+                <label class="form-check-label" for="vasDm">Dispute Management Enabled</label>
+            </div>
+        </div>
+    </div>
+}
+else if (_selectedProductType == BoardingProductTypes.VirtualTerminal)
+{
+    <div class="card mb-3">
+        <div class="card-header"><b>Virtual Terminal — Common</b></div>
+        <div class="card-body">
+            @RenderBasicFields(_virtualTerminal)
+            <hr />
+            <div class="row g-2">
+                <div class="col-md-4"><label class="form-label">Merchant Country</label>   <input class="form-control" @bind="_virtualTerminal.MerchantCountry" /></div>
+                <div class="col-md-4"><label class="form-label">Token Provider</label>     <input class="form-control" @bind="_virtualTerminal.TokenProvider" /></div>
+                <div class="col-md-4"><label class="form-label">Ots Token Class</label>    <input class="form-control" @bind="_virtualTerminal.OtsTokenClass" /></div>
+                <div class="col-md-4"><label class="form-label">Ots Profile Id</label>     <input class="form-control" @bind="_virtualTerminal.OtsProfileId" /></div>
+                <div class="col-md-4"><label class="form-label">Card Processing Type</label><input class="form-control" @bind="_virtualTerminal.CardProcessingType" /></div>
+                <div class="col-md-4"><label class="form-label">Default Transaction Method</label><input class="form-control" @bind="_virtualTerminal.DefaultTransactionMethod" /></div>
+            </div>
+            <div class="row g-2 mt-2">
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="vtEch" @bind="_vtAllowEcheck" /><label class="form-check-label" for="vtEch">Allow eCheck Fields</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="vtL3"  @bind="_vtAllowL3" />    <label class="form-check-label" for="vtL3">Allow Level 3 Fields</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="vtSvc" @bind="_vtAllowSvc" />   <label class="form-check-label" for="vtSvc">Allow Service Fee Fields</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="vtPp"  @bind="_vtProductProfile" /><label class="form-check-label" for="vtPp">Product Profile Enabled</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="vtAl"  @bind="_vtAccountLevel" /><label class="form-check-label" for="vtAl">Account Level Enabled</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="vtSs"  @bind="_vtSecureStorage" /><label class="form-check-label" for="vtSs">Secure Storage Enabled</label></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header"><b>Virtual Terminal — Advanced (persisted verbatim)</b></div>
+        <div class="card-body">
+            <p class="text-muted small">
+                These JSON blocks are produced when you paste a VT base JSON above. They round-trip
+                to the VT child tables (<code>GlobalPaymentInfo</code>, <code>ReceiptInfo</code>,
+                <code>ReaderInfo</code>) on save. Leave them blank to omit child-table writes.
+            </p>
+            <label class="form-label">Global Payment Info (JSON)</label>
+            <textarea class="form-control font-monospace mb-2" rows="6" @bind="_virtualTerminal.GlobalPaymentInfoJson"></textarea>
+            <label class="form-label">Receipt Info (JSON)</label>
+            <textarea class="form-control font-monospace mb-2" rows="6" @bind="_virtualTerminal.ReceiptInfoJson"></textarea>
+            <label class="form-label">Reader Info (JSON)</label>
+            <textarea class="form-control font-monospace mb-2" rows="4" @bind="_virtualTerminal.ReaderInfoJson"></textarea>
+        </div>
+    </div>
+}
+else if (_selectedProductType == BoardingProductTypes.PayerAuthentication)
+{
+    <div class="card mb-3">
+        <div class="card-header"><b>Payer Authentication</b></div>
+        <div class="card-body">
+            @RenderBasicFields(_payerAuth)
+            <hr />
+            <div class="row g-2 mb-3">
+                <div class="col-md-6">
+                    <label class="form-label">Template ID</label>
+                    <input class="form-control" @bind="_payerAuth.TemplateId" />
+                </div>
+            </div>
+            <hr />
+            <h6>Card Type Configurations</h6>
+            @if (_payerAuth.CardTypeConfigs.Count == 0)
+            {
+                <p class="text-muted small mb-2">No card types added yet.</p>
+            }
+            else
+            {
+                <table class="table table-sm table-bordered mb-2">
+                    <thead class="table-light">
+                        <tr><th>Card Type</th><th>Currencies</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @for (int i = 0; i < _payerAuth.CardTypeConfigs.Count; i++)
+                        {
+                            var ci = i;
+                            var ct = _payerAuth.CardTypeConfigs[i];
+                            <tr>
+                                <td class="fw-semibold align-top">@ct.CardTypeName</td>
+                                <td>
+                                    @foreach (var cur in ct.Currencies)
+                                    {
+                                        var curIdx = ct.Currencies.IndexOf(cur);
+                                        <div class="small mb-1">
+                                            <span>Codes: <b>@cur.CurrencyCodes</b></span>
+                                            @if (!string.IsNullOrWhiteSpace(cur.AcquirerId)) { <span class="ms-2">Acq: @cur.AcquirerId</span> }
+                                            @if (!string.IsNullOrWhiteSpace(cur.ProcessorMerchantId)) { <span class="ms-2">ProcMID: @cur.ProcessorMerchantId</span> }
+                                            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 ms-2"
+                                                    @onclick="() => RemovePayerAuthCurrency(ci, curIdx)">×</button>
+                                        </div>
+                                    }
+                                    @if (_paAddCurrencyToIndex == ci)
+                                    {
+                                        <div class="border rounded p-2 mt-2 bg-light">
+                                            <div class="mb-2">
+                                                <label class="form-label small mb-1">Currency Codes (e.g. ALL, USD,EUR)</label>
+                                                <input class="form-control form-control-sm" @bind="_paNewCurrencyCodes" />
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small mb-1">Acquirer ID</label>
+                                                <input class="form-control form-control-sm" @bind="_paNewAcquirerId" />
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small mb-1">Processor Merchant ID</label>
+                                                <input class="form-control form-control-sm" @bind="_paNewProcessorMerchantId" />
+                                            </div>
+                                            <div class="d-flex gap-2">
+                                                <button type="button" class="btn btn-sm btn-success" @onclick="() => AddPayerAuthCurrency(ci)">Add Currency</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _paAddCurrencyToIndex = -1">Cancel</button>
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-secondary mt-1"
+                                                @onclick="() => _paAddCurrencyToIndex = ci">+ Currency</button>
+                                    }
+                                </td>
+                                <td class="align-top">
+                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                            @onclick="() => RemovePayerAuthCardType(ci)">Remove</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label small">Card Type Name</label>
+                    <input class="form-control form-control-sm" placeholder="e.g. visa, mastercard, amex" @bind="_paNewCardTypeName" />
+                </div>
+                <div class="col-md-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddPayerAuthCardType">Add Card Type</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_selectedProductType != BoardingProductTypes.TokenManagement)
+{
+    <div class="d-flex gap-2 mb-4">
+        <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
+            @(_saving ? "Saving..." : "Save Product Subscription")
+        </button>
+        <button class="btn btn-outline-secondary" @onclick="ResetForm">Reset</button>
+        <a class="btn btn-outline-primary" href="/transactingboarding">Transacting Boarding</a>
+        <a class="btn btn-outline-secondary" href="/orgboarding">Org Boarding</a>
+    </div>
+
+    @* ─── Saved-subscriptions list for the selected product ───────────────────── *@
+    <div class="card mb-3">
+        <div class="card-header"><b>Saved @CurrentProductLabel Subscriptions</b></div>
+        <div class="card-body p-0">
+            @if (_savedRows.Count == 0)
+            {
+                <p class="text-muted p-3 mb-0">No subscriptions saved yet for this product.</p>
+            }
+            else
+            {
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>ID</th>
+                            <th>Summary</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _savedRows)
+                        {
+                            <tr>
+                                <td>@row.Id</td>
+                                <td>@row.Summary</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => LoadForEdit(row.Id)">Edit</button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(row.Id)">Delete</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+    @* ─── Many-to-many link to transacting merchants ──────────────────────────── *@
+    <div class="card mb-3">
+        <div class="card-header"><b>Link Product Subscription to Transacting Merchants</b></div>
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label">Transacting Merchant</label>
+                    <select class="form-select" @bind="_linkMerchantId" @bind:after="LoadLinksForMerchantAsync">
+                        <option value="0">-- Select Merchant --</option>
+                        @foreach (var m in _savedMerchants)
+                        {
+                            <option value="@m.BoardingTransactingMerchantId">[@m.BoardingTransactingMerchantId] @m.TransactingOrganizationId (@m.BoardingProcessor)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">@CurrentProductLabel Subscription</label>
+                    <select class="form-select" @bind="_linkSubscriptionId">
+                        <option value="0">-- Select Subscription --</option>
+                        @foreach (var row in _savedRows)
+                        {
+                            <option value="@row.Id">[ID @row.Id] @row.Summary</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-success w-100"
+                            @onclick="LinkAsync"
+                            disabled="@(_linkMerchantId == 0 || _linkSubscriptionId == 0 || _linking)">
+                        @(_linking ? "Linking..." : "Link")
+                    </button>
+                </div>
+            </div>
+
+            @if (_linkMerchantId > 0)
+            {
+                <div class="mt-3">
+                    <h6 class="mb-2">Current Links for Merchant @_linkMerchantId</h6>
+                    @if (_linksForMerchant.Count == 0)
+                    {
+                        <p class="text-muted mb-0">No links yet for this merchant.</p>
+                    }
+                    else
+                    {
+                        <table class="table table-sm table-bordered mb-0">
+                            <thead class="table-light">
+                                <tr><th>Link ID</th><th>Product</th><th>Subscription ID</th><th></th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var link in _linksForMerchant)
+                                {
+                                    <tr>
+                                        <td>@link.BoardingTransactingMerchantProductSubscriptionId</td>
+                                        <td>@link.ProductType</td>
+                                        <td>@link.ProductSubscriptionId</td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-danger"
+                                                    @onclick="() => UnlinkAsync(link.BoardingTransactingMerchantProductSubscriptionId)">
+                                                Unlink
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private record ProductOption(string Key, string Label);
+    private record SavedRow(int Id, string Summary);
+
+    private readonly List<ProductOption> _products = new()
+    {
+        new(BoardingProductTypes.DigitalPayments,    "Digital Payments"),
+        new(BoardingProductTypes.CustomerInvoicing,  "Customer Invoicing"),
+        new(BoardingProductTypes.PayByLink,          "Pay By Link"),
+        new(BoardingProductTypes.TokenManagement,    "Token Management"),
+        new(BoardingProductTypes.UnifiedCheckout,    "Unified Checkout"),
+        new(BoardingProductTypes.ValueAddedServices, "Value Added Services"),
+        new(BoardingProductTypes.VirtualTerminal,    "Virtual Terminal"),
+        new(BoardingProductTypes.PayerAuthentication, "Payer Authentication")
+    };
+
+    private string _selectedProductType = BoardingProductTypes.DigitalPayments;
+    private string CurrentProductLabel => _products.First(p => p.Key == _selectedProductType).Label;
+
+    // Per-product DTOs
+    private BoardingDigitalPaymentsSubscriptionDto    _digitalPayments = new();
+    private BoardingInvoicingSubscriptionDto          _invoicing        = new();
+    private BoardingPayByLinkSubscriptionDto          _payByLink        = new();
+    private BoardingUnifiedCheckoutSubscriptionDto    _unifiedCheckout  = new();
+    private BoardingValueAddedServicesSubscriptionDto _vas              = new();
+    private BoardingVirtualTerminalSubscriptionDto    _virtualTerminal  = new();
+    private BoardingPayerAuthenticationSubscriptionDto _payerAuth       = new();
+
+    // Payer Authentication card-type editor state
+    private string _paNewCardTypeName        = string.Empty;
+    private int    _paAddCurrencyToIndex     = -1;
+    private string _paNewCurrencyCodes       = string.Empty;
+    private string _paNewAcquirerId          = string.Empty;
+    private string _paNewProcessorMerchantId = string.Empty;
+
+    // Bool mirrors (bindable to checkboxes)
+    private bool _samsungPay, _applePay;
+    private bool _vtAllowEcheck, _vtAllowL3, _vtAllowSvc, _vtProductProfile, _vtAccountLevel, _vtSecureStorage;
+    private bool _vasTsEnabled, _vasReportingEnabled, _vasDisputeEnabled;
+    private bool _ucApplePay, _ucClickToPay, _ucECheck, _ucGooglePay, _ucDecisionMgr, _ucPayerAuth, _ucTokenMgmt;
+
+    private string _allowedCardNetworksText = string.Empty;
+
+    private List<SavedRow> _savedRows = new();
+    private List<BoardingTransactingMerchantDto> _savedMerchants = new();
+    private List<BoardingTransactingMerchantProductSubscriptionDto> _linksForMerchant = new();
+
+    private int  _linkMerchantId     = 0;
+    private int  _linkSubscriptionId = 0;
+    private bool _linking            = false;
+
+    private string _jsonInput     = string.Empty;
+    private string _statusMessage = string.Empty;
+    private bool   _isError       = false;
+    private bool   _saving        = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var merchants = await CallMinAPIs.GetBoardingTransactingMerchantsAsync();
+        _savedMerchants = merchants.Data ?? new();
+        if (merchants.Error is not null) { _isError = true; _statusMessage = $"Failed to load merchants: {merchants.Error.Message}"; }
+        await LoadSavedRowsAsync();
+    }
+
+    private async Task OnProductChangedAsync()
+    {
+        ResetForm();
+        await LoadSavedRowsAsync();
+    }
+
+    private async Task LoadSavedRowsAsync()
+    {
+        _savedRows.Clear();
+        switch (_selectedProductType)
+        {
+            case BoardingProductTypes.DigitalPayments:
+            {
+                var r = await CallMinAPIs.GetAllDigitalPaymentsAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _savedRows = (r.Data ?? new()).Select(x => new SavedRow(x.BoardingDigitalPaymentsSubscriptionId,
+                    $"enabled={x.Enabled}, samsung={x.SamsungPayEnabled}, apple={x.ApplePayEnabled}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.CustomerInvoicing:
+            {
+                var r = await CallMinAPIs.GetAllInvoicingAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _savedRows = (r.Data ?? new()).Select(x => new SavedRow(x.BoardingInvoicingSubscriptionId,
+                    $"enabled={x.Enabled}, status={x.EnablementStatus}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.PayByLink:
+            {
+                var r = await CallMinAPIs.GetAllPayByLinkAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _savedRows = (r.Data ?? new()).Select(x => new SavedRow(x.BoardingPayByLinkSubscriptionId,
+                    $"enabled={x.Enabled}, status={x.EnablementStatus}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.UnifiedCheckout:
+            {
+                var r = await CallMinAPIs.GetAllUnifiedCheckoutAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _savedRows = (r.Data ?? new()).Select(x => new SavedRow(x.BoardingUnifiedCheckoutSubscriptionId,
+                    $"enabled={x.Enabled}, networks={x.AllowedCardNetworks.Count}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.ValueAddedServices:
+            {
+                var r = await CallMinAPIs.GetAllValueAddedServicesAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _savedRows = (r.Data ?? new()).Select(x => new SavedRow(x.BoardingValueAddedServicesSubscriptionId,
+                    $"search={x.TransactionSearchEnabled}, reporting={x.ReportingEnabled}, dispute={x.DisputeManagementEnabled}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.VirtualTerminal:
+            {
+                var r = await CallMinAPIs.GetAllVirtualTerminalAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _savedRows = (r.Data ?? new()).Select(x => new SavedRow(x.BoardingVirtualTerminalSubscriptionId,
+                    $"enabled={x.Enabled}, country={x.MerchantCountry}, type={x.CardProcessingType}")).ToList();
+                break;
+            }
+            case BoardingProductTypes.PayerAuthentication:
+            {
+                var r = await CallMinAPIs.GetAllPayerAuthenticationAsync();
+                if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                _savedRows = (r.Data ?? new()).Select(x => new SavedRow(x.BoardingPayerAuthenticationSubscriptionId,
+                    $"enabled={x.Enabled}, template={x.TemplateId}, cardTypes={x.CardTypeConfigs.Count}")).ToList();
+                break;
+            }
+        }
+    }
+
+    private void LoadFromJson()
+    {
+        if (string.IsNullOrWhiteSpace(_jsonInput)) { _isError = true; _statusMessage = "Paste the base JSON first."; return; }
+        try
+        {
+            var root = JsonNode.Parse(_jsonInput);
+            var setups = root?["setups"];
+            if (setups is null) { _isError = true; _statusMessage = "JSON has no 'setups' property."; return; }
+
+            switch (_selectedProductType)
+            {
+                case BoardingProductTypes.DigitalPayments:
+                {
+                    var dp = setups["payments"]?["digitalPayments"];
+                    if (dp is null) { _isError = true; _statusMessage = "Could not locate setups.payments.digitalPayments."; return; }
+                    HydrateBasic(dp["subscriptionInformation"], _digitalPayments);
+                    _samsungPay = (bool?)dp["subscriptionInformation"]?["features"]?["samsungPay"]?["enabled"] ?? _samsungPay;
+                    _applePay   = (bool?)dp["subscriptionInformation"]?["features"]?["applePay"]?["enabled"]   ?? _applePay;
+                    break;
+                }
+                case BoardingProductTypes.CustomerInvoicing:
+                {
+                    var node = setups["payments"]?["customerInvoicing"]?["subscriptionInformation"];
+                    if (node is null) { _isError = true; _statusMessage = "Could not locate setups.payments.customerInvoicing.subscriptionInformation."; return; }
+                    HydrateBasic(node, _invoicing);
+                    break;
+                }
+                case BoardingProductTypes.PayByLink:
+                {
+                    var node = setups["payments"]?["payByLink"]?["subscriptionInformation"];
+                    if (node is null) { _isError = true; _statusMessage = "Could not locate setups.payments.payByLink.subscriptionInformation."; return; }
+                    HydrateBasic(node, _payByLink);
+                    break;
+                }
+                case BoardingProductTypes.UnifiedCheckout:
+                {
+                    var prod = setups["payments"]?["unifiedCheckout"];
+                    if (prod is null) { _isError = true; _statusMessage = "Could not locate setups.payments.unifiedCheckout."; return; }
+                    HydrateBasic(prod["subscriptionInformation"], _unifiedCheckout);
+                    _unifiedCheckout.ConfigurationStatus  = (string?)prod["configurationInformation"]?["configurationStatus"]?["status"];
+                    _unifiedCheckout.ConfigurationMessage = (string?)prod["configurationInformation"]?["configurationStatus"]?["message"];
+                    var networks = prod["configurationInformation"]?["configurations"]?["common"]?["allowedCardNetworks"] as JsonArray;
+                    if (networks is not null)
+                    {
+                        _unifiedCheckout.AllowedCardNetworks = networks.Select(n => (string?)n).Where(s => !string.IsNullOrWhiteSpace(s)).Cast<string>().ToList();
+                        _allowedCardNetworksText = string.Join("\n", _unifiedCheckout.AllowedCardNetworks);
+                    }
+                    var ucFeatures = prod["subscriptionInformation"]?["features"];
+                    if (ucFeatures is not null)
+                    {
+                        _ucApplePay   = (bool?)ucFeatures["applePay"]?["enabled"]            ?? _ucApplePay;
+                        _ucClickToPay = (bool?)ucFeatures["clickToPay"]?["enabled"]          ?? _ucClickToPay;
+                        _ucECheck     = (bool?)ucFeatures["eCheck"]?["enabled"]              ?? _ucECheck;
+                        _ucGooglePay  = (bool?)ucFeatures["googlePay"]?["enabled"]           ?? _ucGooglePay;
+                        _ucDecisionMgr = (bool?)ucFeatures["decisionManager"]?["enabled"]   ?? _ucDecisionMgr;
+                        _ucPayerAuth  = (bool?)ucFeatures["payerAuthentication"]?["enabled"] ?? _ucPayerAuth;
+                        _ucTokenMgmt  = (bool?)ucFeatures["tokenManagement"]?["enabled"]    ?? _ucTokenMgmt;
+                    }
+                    break;
+                }
+                case BoardingProductTypes.ValueAddedServices:
+                {
+                    var vas = setups["valueAddedServices"];
+                    if (vas is null) { _isError = true; _statusMessage = "Could not locate setups.valueAddedServices."; return; }
+                    var ts = vas["transactionSearch"]?["subscriptionInformation"];
+                    var rep = vas["reporting"]?["subscriptionInformation"];
+                    if (ts is not null)
+                    {
+                        _vasTsEnabled                             = (bool?)ts["enabled"] ?? _vasTsEnabled;
+                        _vas.TransactionSearchEnablementStatus    = (string?)ts["enablementStatus"];
+                        _vas.TransactionSearchSelfServiceability  = (string?)ts["selfServiceability"];
+                        _vas.TransactionSearchDistributability    = (string?)ts["distributability"];
+                    }
+                    if (rep is not null)
+                    {
+                        _vasReportingEnabled                      = (bool?)rep["enabled"] ?? _vasReportingEnabled;
+                        _vas.ReportingEnablementStatus            = (string?)rep["enablementStatus"];
+                        _vas.ReportingSelfServiceability          = (string?)rep["selfServiceability"];
+                        _vas.ReportingDistributability            = (string?)rep["distributability"];
+                    }
+                    _vasDisputeEnabled = setups["disputeManagement"] is not null ? _vasDisputeEnabled : false;
+                    break;
+                }
+                case BoardingProductTypes.VirtualTerminal:
+                {
+                    var prod = setups["payments"]?["virtualTerminal"];
+                    if (prod is null) { _isError = true; _statusMessage = "Could not locate setups.payments.virtualTerminal."; return; }
+                    HydrateBasic(prod["subscriptionInformation"], _virtualTerminal);
+                    _virtualTerminal.ConfigurationStatus = (string?)prod["configurationInformation"]?["configurationStatus"]?["status"];
+
+                    var common = prod["configurationInformation"]?["configurations"]?["common"];
+                    if (common is not null)
+                    {
+                        _vtAllowEcheck   = (bool?)common["allowECheckFields"]     ?? _vtAllowEcheck;
+                        _vtAllowL3       = (bool?)common["allowLevel3Fields"]    ?? _vtAllowL3;
+                        _vtAllowSvc      = (bool?)common["allowServiceFeeFields"]?? _vtAllowSvc;
+                        _vtProductProfile= (bool?)common["productProfileEnabled"]?? _vtProductProfile;
+                        _vtAccountLevel  = (bool?)common["accountLevelEnabled"]  ?? _vtAccountLevel;
+                        _vtSecureStorage = (bool?)common["secureStorageEnabled"] ?? _vtSecureStorage;
+                        _virtualTerminal.MerchantCountry          = (string?)common["merchantCountry"];
+                        _virtualTerminal.TokenProvider            = (string?)common["tokenProvider"];
+                        _virtualTerminal.OtsTokenClass            = (string?)common["otsTokenClass"];
+                        _virtualTerminal.OtsProfileId             = (string?)common["otsProfileid"];
+                        _virtualTerminal.CardProcessingType       = (string?)common["cardProcessingType"];
+                        _virtualTerminal.DefaultTransactionMethod = (string?)common["defaultTransactionMethod"];
+                    }
+
+                    var cnp = prod["configurationInformation"]?["configurations"]?["cardNotPresent"];
+                    if (cnp is not null)
+                    {
+                        var gpi = cnp["globalPaymentInformation"];
+                        if (gpi is not null) _virtualTerminal.GlobalPaymentInfoJson = FlattenVtBlock(gpi);
+                        var rcpt = cnp["receiptInformation"];
+                        if (rcpt is not null) _virtualTerminal.ReceiptInfoJson = FlattenVtBlock(rcpt);
+                        var rdr = cnp["readerInformation"];
+                        if (rdr is not null) _virtualTerminal.ReaderInfoJson = FlattenVtBlock(rdr);
+                    }
+                    break;
+                }
+                case BoardingProductTypes.PayerAuthentication:
+                {
+                    var prod = setups["productInformation"]?["selectedProducts"]?["payments"]?["payerAuthentication"];
+                    if (prod is null) { _isError = true; _statusMessage = "Could not locate setups.productInformation.selectedProducts.payments.payerAuthentication."; return; }
+                    HydrateBasic(prod["subscriptionInformation"], _payerAuth);
+                    _payerAuth.TemplateId = (string?)prod["configurationInformation"]?["templateId"];
+                    var cardTypes = prod["configurationInformation"]?["configurations"]?["cardTypes"] as JsonObject;
+                    if (cardTypes is not null)
+                    {
+                        _payerAuth.CardTypeConfigs.Clear();
+                        foreach (var kvp in cardTypes)
+                        {
+                            var ctDto = new BoardingPayerAuthenticationCardTypeDto { CardTypeName = kvp.Key };
+                            var currencies = kvp.Value?["currencies"] as JsonArray;
+                            if (currencies is not null)
+                            {
+                                foreach (var cur in currencies)
+                                {
+                                    var ccNode = cur?["currencyCodes"];
+                                    var ccValue = ccNode is JsonArray ccArr
+                                        ? string.Join(",", ccArr.Select(n => (string?)n).Where(s => s is not null))
+                                        : (string?)ccNode;
+                                    ctDto.Currencies.Add(new BoardingPayerAuthenticationCurrencyDto
+                                    {
+                                        CurrencyCodes       = ccValue,
+                                        AcquirerId          = (string?)cur?["acquirerId"],
+                                        ProcessorMerchantId = (string?)cur?["processorMerchantId"]
+                                    });
+                                }
+                            }
+                            _payerAuth.CardTypeConfigs.Add(ctDto);
+                        }
+                    }
+                    break;
+                }
+            }
+
+            _isError = false;
+            _statusMessage = "JSON loaded successfully.";
+            _jsonInput = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = $"Invalid JSON: {ex.Message}";
+        }
+    }
+
+    // Virtual Terminal's cardNotPresent children are nested further in the JSON than in our table shape.
+    // Rather than auto-mapping 200+ fields, store the JSON verbatim; the server round-trips it via
+    // JsonSerializer into the entity. Callers can hand-edit before save.
+    private static string FlattenVtBlock(JsonNode block) =>
+        block.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+
+    private static void HydrateBasic<T>(JsonNode? subInfo, T target) where T : BoardingBasicSubscriptionDto
+    {
+        if (subInfo is null) return;
+        target.Enabled            = (bool?)subInfo["enabled"]            ?? target.Enabled;
+        target.EnablementStatus   = (string?)subInfo["enablementStatus"]   ?? target.EnablementStatus;
+        target.SelfServiceability = (string?)subInfo["selfServiceability"] ?? target.SelfServiceability;
+        target.Distributability   = (string?)subInfo["distributability"]   ?? target.Distributability;
+    }
+
+    private RenderFragment RenderBasicFields<T>(T dto) where T : BoardingBasicSubscriptionDto => __builder =>
+    {
+        <div class="row g-2 mb-2">
+            <div class="col-md-3">
+                <div class="form-check form-switch">
+                    <input type="checkbox" class="form-check-input" id="enabled-@typeof(T).Name" @bind="BasicEnabledProxy" />
+                    <label class="form-check-label" for="enabled-@typeof(T).Name">Enabled</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Enablement Status</label>
+                <input class="form-control" @bind="dto.EnablementStatus" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Self Serviceability</label>
+                <input class="form-control" @bind="dto.SelfServiceability" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Distributability</label>
+                <input class="form-control" @bind="dto.Distributability" />
+            </div>
+        </div>
+    };
+
+    // Routes the Enabled checkbox to whichever product DTO is currently being edited.
+    private bool BasicEnabledProxy
+    {
+        get => _selectedProductType switch
+        {
+            BoardingProductTypes.DigitalPayments    => _digitalPayments.Enabled  ?? false,
+            BoardingProductTypes.CustomerInvoicing  => _invoicing.Enabled        ?? false,
+            BoardingProductTypes.PayByLink          => _payByLink.Enabled        ?? false,
+            BoardingProductTypes.UnifiedCheckout    => _unifiedCheckout.Enabled  ?? false,
+            BoardingProductTypes.VirtualTerminal    => _virtualTerminal.Enabled  ?? false,
+            BoardingProductTypes.PayerAuthentication => _payerAuth.Enabled       ?? false,
+            _ => false
+        };
+        set
+        {
+            switch (_selectedProductType)
+            {
+                case BoardingProductTypes.DigitalPayments:    _digitalPayments.Enabled = value; break;
+                case BoardingProductTypes.CustomerInvoicing:  _invoicing.Enabled       = value; break;
+                case BoardingProductTypes.PayByLink:          _payByLink.Enabled       = value; break;
+                case BoardingProductTypes.UnifiedCheckout:    _unifiedCheckout.Enabled = value; break;
+                case BoardingProductTypes.VirtualTerminal:    _virtualTerminal.Enabled = value; break;
+                case BoardingProductTypes.PayerAuthentication: _payerAuth.Enabled      = value; break;
+            }
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            string summary;
+            switch (_selectedProductType)
+            {
+                case BoardingProductTypes.DigitalPayments:
+                {
+                    _digitalPayments.SamsungPayEnabled = _samsungPay;
+                    _digitalPayments.ApplePayEnabled   = _applePay;
+                    var r = await CallMinAPIs.SaveDigitalPaymentsAsync(_digitalPayments);
+                    if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                    summary = $"ID={r.Data?.BoardingDigitalPaymentsSubscriptionId}";
+                    break;
+                }
+                case BoardingProductTypes.CustomerInvoicing:
+                {
+                    var r = await CallMinAPIs.SaveInvoicingAsync(_invoicing);
+                    if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                    summary = $"ID={r.Data?.BoardingInvoicingSubscriptionId}";
+                    break;
+                }
+                case BoardingProductTypes.PayByLink:
+                {
+                    var r = await CallMinAPIs.SavePayByLinkAsync(_payByLink);
+                    if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                    summary = $"ID={r.Data?.BoardingPayByLinkSubscriptionId}";
+                    break;
+                }
+                case BoardingProductTypes.UnifiedCheckout:
+                {
+                    _unifiedCheckout.AllowedCardNetworks =
+                        _allowedCardNetworksText.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                                                .Select(s => s.Trim())
+                                                .Where(s => s.Length > 0)
+                                                .ToList();
+                    _unifiedCheckout.ApplePayEnabled            = _ucApplePay;
+                    _unifiedCheckout.ClickToPayEnabled          = _ucClickToPay;
+                    _unifiedCheckout.ECheckEnabled              = _ucECheck;
+                    _unifiedCheckout.GooglePayEnabled           = _ucGooglePay;
+                    _unifiedCheckout.DecisionManagerEnabled     = _ucDecisionMgr;
+                    _unifiedCheckout.PayerAuthenticationEnabled = _ucPayerAuth;
+                    _unifiedCheckout.TokenManagementEnabled     = _ucTokenMgmt;
+                    var r = await CallMinAPIs.SaveUnifiedCheckoutAsync(_unifiedCheckout);
+                    if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                    summary = $"ID={r.Data?.BoardingUnifiedCheckoutSubscriptionId}";
+                    break;
+                }
+                case BoardingProductTypes.ValueAddedServices:
+                {
+                    _vas.TransactionSearchEnabled = _vasTsEnabled;
+                    _vas.ReportingEnabled         = _vasReportingEnabled;
+                    _vas.DisputeManagementEnabled = _vasDisputeEnabled;
+                    var r = await CallMinAPIs.SaveValueAddedServicesAsync(_vas);
+                    if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                    summary = $"ID={r.Data?.BoardingValueAddedServicesSubscriptionId}";
+                    break;
+                }
+                case BoardingProductTypes.VirtualTerminal:
+                {
+                    _virtualTerminal.AllowECheckFields     = _vtAllowEcheck;
+                    _virtualTerminal.AllowLevel3Fields     = _vtAllowL3;
+                    _virtualTerminal.AllowServiceFeeFields = _vtAllowSvc;
+                    _virtualTerminal.ProductProfileEnabled = _vtProductProfile;
+                    _virtualTerminal.AccountLevelEnabled   = _vtAccountLevel;
+                    _virtualTerminal.SecureStorageEnabled  = _vtSecureStorage;
+                    var r = await CallMinAPIs.SaveVirtualTerminalAsync(_virtualTerminal);
+                    if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                    summary = $"ID={r.Data?.BoardingVirtualTerminalSubscriptionId}";
+                    break;
+                }
+                case BoardingProductTypes.PayerAuthentication:
+                {
+                    var r = await CallMinAPIs.SavePayerAuthenticationAsync(_payerAuth);
+                    if (r.Error is not null) { _isError = true; _statusMessage = r.Error.Message; return; }
+                    summary = $"ID={r.Data?.BoardingPayerAuthenticationSubscriptionId}";
+                    break;
+                }
+                default:
+                    _isError = true; _statusMessage = "Unknown product type."; return;
+            }
+
+            _isError = false;
+            _statusMessage = $"{CurrentProductLabel} subscription saved ({summary}). Link it below to one or more merchants.";
+            ResetForm();
+            await LoadSavedRowsAsync();
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task DeleteAsync(int id)
+    {
+        ApiResult<bool> r = _selectedProductType switch
+        {
+            BoardingProductTypes.DigitalPayments     => await CallMinAPIs.DeleteDigitalPaymentsAsync(id),
+            BoardingProductTypes.CustomerInvoicing   => await CallMinAPIs.DeleteInvoicingAsync(id),
+            BoardingProductTypes.PayByLink           => await CallMinAPIs.DeletePayByLinkAsync(id),
+            BoardingProductTypes.UnifiedCheckout     => await CallMinAPIs.DeleteUnifiedCheckoutAsync(id),
+            BoardingProductTypes.ValueAddedServices  => await CallMinAPIs.DeleteValueAddedServicesAsync(id),
+            BoardingProductTypes.VirtualTerminal     => await CallMinAPIs.DeleteVirtualTerminalAsync(id),
+            BoardingProductTypes.PayerAuthentication => await CallMinAPIs.DeletePayerAuthenticationAsync(id),
+            _ => ApiResult<bool>.Fail("Unknown product type.")
+        };
+        _isError = !r.IsSuccess;
+        _statusMessage = r.Error is not null ? $"Delete failed: {r.Error.Message}" : $"Subscription {id} deleted.";
+        await LoadSavedRowsAsync();
+        if (_linkMerchantId > 0) await LoadLinksForMerchantAsync();
+    }
+
+    private void LoadForEdit(int id)
+    {
+        _statusMessage = $"Editing ID={id}. Fields reflect last-loaded values; paste JSON or adjust below and Save.";
+        _isError = false;
+        if (_selectedProductType == BoardingProductTypes.VirtualTerminal)
+            _ = LoadVirtualTerminalByIdAsync(id);
+        else if (_selectedProductType == BoardingProductTypes.PayerAuthentication)
+            _ = LoadPayerAuthByIdAsync(id);
+    }
+
+    private async Task LoadPayerAuthByIdAsync(int id)
+    {
+        var r = await CallMinAPIs.GetPayerAuthenticationByIdAsync(id);
+        if (r.Error is not null || r.Data is null) { _isError = true; _statusMessage = r.Error?.Message ?? "Failed to load Payer Authentication subscription."; return; }
+        _payerAuth = r.Data;
+        _paAddCurrencyToIndex = -1;
+        StateHasChanged();
+    }
+
+    private void AddPayerAuthCardType()
+    {
+        if (string.IsNullOrWhiteSpace(_paNewCardTypeName)) return;
+        _payerAuth.CardTypeConfigs.Add(new BoardingPayerAuthenticationCardTypeDto { CardTypeName = _paNewCardTypeName.Trim() });
+        _paNewCardTypeName = string.Empty;
+    }
+
+    private void RemovePayerAuthCardType(int index)
+    {
+        if (index >= 0 && index < _payerAuth.CardTypeConfigs.Count)
+            _payerAuth.CardTypeConfigs.RemoveAt(index);
+        if (_paAddCurrencyToIndex >= _payerAuth.CardTypeConfigs.Count)
+            _paAddCurrencyToIndex = -1;
+    }
+
+    private void AddPayerAuthCurrency(int cardTypeIndex)
+    {
+        if (cardTypeIndex < 0 || cardTypeIndex >= _payerAuth.CardTypeConfigs.Count) return;
+        _payerAuth.CardTypeConfigs[cardTypeIndex].Currencies.Add(new BoardingPayerAuthenticationCurrencyDto
+        {
+            CurrencyCodes       = string.IsNullOrWhiteSpace(_paNewCurrencyCodes)       ? null : _paNewCurrencyCodes.Trim(),
+            AcquirerId          = string.IsNullOrWhiteSpace(_paNewAcquirerId)          ? null : _paNewAcquirerId.Trim(),
+            ProcessorMerchantId = string.IsNullOrWhiteSpace(_paNewProcessorMerchantId) ? null : _paNewProcessorMerchantId.Trim()
+        });
+        _paNewCurrencyCodes = _paNewAcquirerId = _paNewProcessorMerchantId = string.Empty;
+        _paAddCurrencyToIndex = -1;
+    }
+
+    private void RemovePayerAuthCurrency(int cardTypeIndex, int currencyIndex)
+    {
+        if (cardTypeIndex < 0 || cardTypeIndex >= _payerAuth.CardTypeConfigs.Count) return;
+        var currencies = _payerAuth.CardTypeConfigs[cardTypeIndex].Currencies;
+        if (currencyIndex >= 0 && currencyIndex < currencies.Count)
+            currencies.RemoveAt(currencyIndex);
+    }
+
+    private async Task LoadVirtualTerminalByIdAsync(int id)
+    {
+        var r = await CallMinAPIs.GetVirtualTerminalByIdAsync(id);
+        if (r.Error is not null || r.Data is null) { _isError = true; _statusMessage = r.Error?.Message ?? "Failed to load VT subscription."; return; }
+        _virtualTerminal = r.Data;
+        _vtAllowEcheck    = _virtualTerminal.AllowECheckFields     ?? false;
+        _vtAllowL3        = _virtualTerminal.AllowLevel3Fields     ?? false;
+        _vtAllowSvc       = _virtualTerminal.AllowServiceFeeFields ?? false;
+        _vtProductProfile = _virtualTerminal.ProductProfileEnabled ?? false;
+        _vtAccountLevel   = _virtualTerminal.AccountLevelEnabled   ?? false;
+        _vtSecureStorage  = _virtualTerminal.SecureStorageEnabled  ?? false;
+        StateHasChanged();
+    }
+
+    private async Task LoadLinksForMerchantAsync()
+    {
+        _linksForMerchant.Clear();
+        if (_linkMerchantId == 0) return;
+        var r = await CallMinAPIs.GetProductLinksByMerchantAsync(_linkMerchantId);
+        if (r.Error is not null) { _isError = true; _statusMessage = $"Failed to load links: {r.Error.Message}"; return; }
+        _linksForMerchant = r.Data ?? new();
+    }
+
+    private async Task LinkAsync()
+    {
+        _linking = true;
+        try
+        {
+            var dto = new BoardingTransactingMerchantProductSubscriptionDto
+            {
+                BoardingTransactingMerchantId = _linkMerchantId,
+                ProductType                   = _selectedProductType,
+                ProductSubscriptionId         = _linkSubscriptionId
+            };
+            var r = await CallMinAPIs.LinkProductSubscriptionAsync(dto);
+            if (r.Error is not null) { _isError = true; _statusMessage = $"Link error: {r.Error.Message}"; return; }
+            _isError = false;
+            _statusMessage = $"Linked {_selectedProductType} subscription {_linkSubscriptionId} to merchant {_linkMerchantId}.";
+            _linkSubscriptionId = 0;
+            await LoadLinksForMerchantAsync();
+        }
+        finally { _linking = false; }
+    }
+
+    private async Task UnlinkAsync(int junctionId)
+    {
+        var r = await CallMinAPIs.UnlinkProductSubscriptionAsync(junctionId);
+        _isError = !r.IsSuccess;
+        _statusMessage = r.Error is not null ? $"Unlink failed: {r.Error.Message}" : $"Link {junctionId} removed.";
+        await LoadLinksForMerchantAsync();
+    }
+
+    private void ResetForm()
+    {
+        _digitalPayments = new(); _invoicing = new(); _payByLink = new();
+        _unifiedCheckout = new(); _vas = new(); _virtualTerminal = new(); _payerAuth = new();
+        _samsungPay = _applePay = false;
+        _vtAllowEcheck = _vtAllowL3 = _vtAllowSvc = _vtProductProfile = _vtAccountLevel = _vtSecureStorage = false;
+        _vasTsEnabled = _vasReportingEnabled = _vasDisputeEnabled = false;
+        _ucApplePay = _ucClickToPay = _ucECheck = _ucGooglePay = _ucDecisionMgr = _ucPayerAuth = _ucTokenMgmt = false;
+        _allowedCardNetworksText = string.Empty;
+        _paNewCardTypeName = _paNewCurrencyCodes = _paNewAcquirerId = _paNewProcessorMerchantId = string.Empty;
+        _paAddCurrencyToIndex = -1;
+        _jsonInput = string.Empty;
+    }
+}

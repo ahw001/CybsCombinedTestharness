@@ -1,0 +1,31 @@
+.offcanvas-body ::deep .nav-link {
+    color: #495057;
+    font-size: 0.875rem;
+}
+
+.offcanvas-body ::deep .nav-link:hover {
+    color: #000;
+    background-color: #f8f9fa;
+}
+
+.offcanvas-body ::deep a.active {
+    color: #000 !important;
+    font-weight: 600;
+    background-color: #e9ecef;
+    border-radius: 0.25rem;
+}
+
+.accordion-button {
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.accordion-button:not(.collapsed) {
+    background-color: transparent;
+    color: #212529;
+    box-shadow: none;
+}
+
+.accordion-button:focus {
+    box-shadow: none;
+}

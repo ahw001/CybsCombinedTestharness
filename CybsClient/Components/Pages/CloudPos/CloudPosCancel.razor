@@ -1,0 +1,187 @@
+﻿@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/cloudposcancel"
+
+
+@inject IHttpClientFactory httpClientFactory
+@inject ICartService cartService
+@inject ITransactionJson transactionJson
+@inject NavigationManager Navigation
+
+
+@inject ICustomersScoped customersScoped
+@inject ISessionTransactions sessionTransactions
+
+
+@code {
+
+    private string transactionPageTitle = string.Empty;
+
+    private string error = string.Empty;
+
+    private ISessionTransactions _sessionTransactions = new SessionTransactions();
+    private SessionTransJson sessionTransJson = new SessionTransJson();
+    private CloudPaymentResponseJson cloudPaymentResponseJson = new();
+    private JwtPayload tokenPayload = new JwtPayload();
+    private BearerTokenDto bearerTokenDto = new BearerTokenDto();
+    private B2cCustomer b2CCustomer = new();
+
+    private string bearerToken = string.Empty;
+
+    private bool showResultCard = false;
+
+    string statusNode = string.Empty;
+    string id = string.Empty;
+    string orderId = string.Empty;
+
+    private List<string> propertyValues = new List<string>();
+
+    private JsonNode? _transactionJson = null;
+
+    private bool containsError = false;
+    private static List<BasicErrorInfo> basicErrorInfos = new List<BasicErrorInfo>();
+
+    protected async override Task OnInitializedAsync()
+    {
+        _sessionTransactions = sessionTransactions;
+
+        sessionTransJson = _sessionTransactions.Transactions.LastOrDefault()!;
+
+        transactionPageTitle = sessionTransJson.CurrentTransactionType.ToString() + ": Follow on Transaction";
+
+        await SubmitForFollowOn();
+
+        base.OnInitialized();
+    }
+
+    private async Task SubmitForFollowOn()
+    {
+        try
+        {
+
+            string emptyJson = "{}";
+
+            CcTransactionTypes ccTransactionType = CcTransactionTypes.CLOUD_POS_BEARER_CREATE;
+
+            // Serialize the object into a string for submission
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(emptyJson, options);
+
+            // POST FOR CLOUD POS BEARER CREATE TRANSACTION *******
+
+            SessionTransJson sessionBearerResponse = await CallMinAPIs.SubmitForFollowOn(jsonString, 
+                _sessionTransactions, ccTransactionType);
+
+            // POST FOR CLOUD POS BEARER CREATE TRANSACTION *******
+
+            if (sessionBearerResponse != null && sessionBearerResponse.TransactionStatus != null && sessionBearerResponse.TransactionStatus.Contains("error"))
+            {
+                error = "Error: " + sessionBearerResponse.TransactionJson;
+                sessionBearerResponse!.error = error;
+                sessionTransactions.AddTrans(sessionBearerResponse);
+                Navigation.NavigateTo("/errorhandler");
+            }
+            else if (sessionBearerResponse != null && sessionBearerResponse.TransactionJson != null && sessionBearerResponse.JsonTransactionStateValues == TransactionStateValues.Complete)
+            {
+                bearerTokenDto = JsonSerializer.Deserialize<BearerTokenDto>(sessionBearerResponse.TransactionJson)!;
+                bearerToken = bearerTokenDto.BearerToken!;
+            }
+            else
+            {
+                error = "Error: No response from server";
+                StateHasChanged();
+            }
+
+            string transJsonString = JsonSerializer.Serialize(sessionTransJson, options);
+
+            sessionTransJson.OriginalTransactionType = CcTransactionTypes.CLOUD_POS_BEARER_SALE;
+            sessionTransJson.CurrentTransactionType = CcTransactionTypes.CLOUD_POS_CANCEL;
+
+            sessionTransJson.Customer = new B2cCustomer();
+            sessionTransJson.Customer.BearerToken = "";
+
+            sessionTransJson!.Customer!.BearerToken = bearerToken;
+            sessionTransJson!.Customer!.CloudPosType = "CancelRequest";
+
+            // POST FOR FOLLOW ON TRANSACTION *******
+
+            jsonString = JsonSerializer.Serialize(sessionTransJson!.Customer!);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString, 
+                _sessionTransactions, (CcTransactionTypes)sessionTransJson.CurrentTransactionType);
+
+            // POST FOR FOLLOW ON TRANSACTION *******
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse is not null && sessionResponse.TransactionJson is not null && sessionResponse.TransactionStatus != "error")
+            {
+                basicErrorInfos = JsonErrorExtractor.ExtractErrorObjects(sessionResponse.TransactionJson.ToString());
+
+                bool containsError = basicErrorInfos.Any(e =>
+                    AppErrorConfig.ErrorKeywords.Any(k =>
+                        $"{e.Status} {e.Reason} {e.Message} {e.Action}"
+                            .ToLowerInvariant()
+                            .Contains(k.ToLowerInvariant())
+                    )
+                );
+
+            }
+
+            if (containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse != null && containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+            else
+            {
+                sessionTransactions.AddTrans(sessionResponse!);
+                Navigation.NavigateTo("/cloudposresponse");
+            }
+
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    private void HandleErrorAndRedirect(SessionTransJson? response, string fallbackErrorMessage = "Unknown error")
+    {
+        StateHasChanged(); // optional UI refresh
+
+        var errorMessage = response?.error ?? fallbackErrorMessage;
+        var errorJsonState = response?.JsonTransactionStateValues ?? TransactionStateValues.Error;
+
+        var errorResponse = response ?? new SessionTransJson
+        {
+            JsonTransactionStateValues = errorJsonState,
+            error = errorMessage,
+            TransactionStatus = "error"
+        };
+
+        sessionTransactions.AddTrans(errorResponse);
+        Navigation.NavigateTo("/errorhandler");
+    }
+}
+

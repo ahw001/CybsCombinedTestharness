@@ -1,0 +1,139 @@
+.top-banner {
+    background-color: #211c24;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 160px;
+    gap: 24px;
+    width: 100%;
+}
+
+.banner-content {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    align-items: flex-start;
+    min-width: 400px;
+    max-width: 714px;
+    flex: 1;
+}
+
+.banner-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    width: 100%;
+    color: #ffffff;
+}
+
+.banner-subtitle {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 25px;
+    line-height: 32px;
+    opacity: 0.4;
+    margin: 0;
+}
+
+.banner-headline {
+    font-family: 'Inter', sans-serif;
+    font-weight: 100;
+    font-size: 96px;
+    line-height: 72px;
+    letter-spacing: -0.96px;
+    margin: 0;
+    color: #ffffff;
+}
+
+.banner-headline-bold {
+    font-weight: 600;
+}
+
+.banner-description {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 18px;
+    line-height: 24px;
+    color: #909090;
+    margin: 0;
+    width: 100%;
+}
+
+.banner-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 56px;
+    border: 1px solid #ffffff;
+    border-radius: 6px;
+    background: transparent;
+    color: #ffffff;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 16px;
+    line-height: 24px;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.banner-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    text-decoration: none;
+}
+
+.banner-image-container {
+    width: 406px;
+    height: 632px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.banner-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+@media (max-width: 992px) {
+    .top-banner {
+        padding: 40px 40px;
+        justify-content: center;
+    }
+
+    .banner-content {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .banner-headline {
+        font-size: 64px;
+        line-height: 56px;
+    }
+
+    .banner-image-container {
+        width: 100%;
+        max-width: 406px;
+        height: auto;
+        aspect-ratio: 406 / 632;
+    }
+}
+
+@media (max-width: 576px) {
+    .top-banner {
+        padding: 24px 16px;
+    }
+
+    .banner-headline {
+        font-size: 48px;
+        line-height: 44px;
+    }
+
+    .banner-subtitle {
+        font-size: 18px;
+        line-height: 24px;
+    }
+}

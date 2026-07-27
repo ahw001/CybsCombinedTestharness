@@ -1,0 +1,84 @@
+/* store.css — Minimal custom styles for CyberStore components in CybsClient
+   Everything else is handled by Bootstrap 5.3 utility classes.
+*/
+
+/* ── Hero Slider ──────────────────────────────────────────────────────── */
+.store-hero-slider {
+    height: 600px;
+}
+
+.store-hero-slide {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.6s ease-in-out;
+    pointer-events: none;
+}
+
+.store-hero-slide.active {
+    opacity: 1;
+    pointer-events: auto;
+    z-index: 1;
+}
+
+.store-hero-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    color: inherit;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.store-hero-nav:hover {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+.store-hero-prev { left: 1rem; }
+.store-hero-next { right: 1rem; }
+
+.store-hero-img {
+    max-height: 520px;
+    object-fit: cover;
+}
+
+/* ── Product Feature Grid ─────────────────────────────────────────────── */
+.store-feature-img {
+    max-height: 75%;
+    max-width: 45%;
+    object-fit: contain;
+}
+
+.store-feature-img-sm {
+    max-height: 85%;
+    max-width: 50%;
+    object-fit: contain;
+}
+
+/* ── Sale Banner ──────────────────────────────────────────────────────── */
+.store-sale-banner {
+    background: #f9f9f9;
+    min-height: 260px;
+}
+
+.store-sale-img-left {
+    width: 35%;
+    object-fit: cover;
+    opacity: 0.6;
+}
+
+.store-sale-img-right {
+    width: 25%;
+    object-fit: cover;
+    opacity: 0.6;
+}
