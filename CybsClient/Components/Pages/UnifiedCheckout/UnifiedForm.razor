@@ -48,15 +48,8 @@
                 {
                     <h4>Error</h4>
                     <p>@error</p>
-                    <div class="dropdown">
-                        <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            Follow on Actions
-                        </button>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="void">New Unified Checkout</a></li>
-                            <li><a class="dropdown-item" href="/">Home</a></li>
-                        </ul>
-                    </div>
+                    <a class="btn btn-primary" href="/unifiedcheckout">New Unified Checkout</a>
+                    <a class="btn btn-outline-primary ms-2" href="/">Home</a>
                 }
             </div>
         </div>
@@ -100,6 +93,8 @@
             dotNetObjectReference.invokeMethodAsync('ReceiveTransientToken', tt);
         }).catch(function (error) {
             console.error("Error in executeAcceptScript:", error);
+            var msg = (error && (error.message || error.toString())) || "Unknown error";
+            dotNetObjectReference.invokeMethodAsync('ReceiveJsError', msg);
         });
     }
 
@@ -161,15 +156,39 @@
             }
             else
             {
-                error = "No Data";
+                error = "Your checkout session has expired or is missing. " +
+                        "Please return to the checkout page and try again.";
                 showInitialForm = false;
                 showTransToken = true;
+                StateHasChanged();
+                return;
             }
 
+            var deadline = DateTime.UtcNow.AddSeconds(10);
             while (!await JSRuntime.InvokeAsync<bool>("eval", "window.scriptIsLoaded"))
             {
+                if (DateTime.UtcNow > deadline)
+                {
+                    Console.WriteLine("SecureAcceptance.js script load timed out after 10 seconds.");
+                    error = "Unified Checkout failed to load (SecureAcceptance.js timed out). " +
+                            "Check that apitest.cybersource.com is reachable from this origin.";
+                    showInitialForm = false;
+                    showTransToken = true;
+                    StateHasChanged();
+                    return;
+                }
                 await Task.Delay(100); // Check every 100 milliseconds
             }
+
+            if (string.IsNullOrWhiteSpace(jwt))
+            {
+                error = "Failed to load payment form: capture context was not available. Please refresh the page.";
+                showInitialForm = false;
+                showTransToken = true;
+                StateHasChanged();
+                return;
+            }
+
             await JSRuntime.InvokeVoidAsync("executeAcceptScript", _dotNetRef, jwt);
         }
     }
@@ -202,6 +221,15 @@
         {
             error = "No Transient Token received";    
         }
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void ReceiveJsError(string message)
+    {
+        error = $"Checkout error: {message}";
+        showInitialForm = false;
+        showTransToken = true;
         StateHasChanged();
     }
 

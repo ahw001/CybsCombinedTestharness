@@ -579,38 +579,6 @@ app.MapGet("/api/diag/outbound-ip", async () =>
     }
 });
 
-// Diagnostic-only: exposes the values that drive the 3-D Secure step-up round-trip so the
-// post-deploy manual test (docs/3ds-challenge-test-checklist.md) can be completed without
-// running a full transaction. Confirms ForwardedHeaders are working (baseUri must be https://)
-// and that the ReturnUrl CyberSource will callback matches the public host.
-app.MapGet("/api/diag/stepup-config", (HttpContext http) =>
-{
-    var request = http.Request;
-
-    // Reconstruct what NavigationManager.BaseUri would report for a Blazor circuit on
-    // this host — same logic: scheme + host + path-base + trailing slash.
-    var scheme = request.Scheme;      // "https" when ForwardedHeaders is wired correctly
-    var host   = request.Host.Value;  // e.g. "myrepl.replit.app"
-    var pathBase = request.PathBase.HasValue ? request.PathBase.Value!.TrimEnd('/') : string.Empty;
-    var baseUri  = $"{scheme}://{host}{pathBase}/";
-    var returnUrl = $"{baseUri}stepup-callback";
-
-    return Results.Ok(new
-    {
-        baseUri,
-        returnUrl,
-        scheme,
-        host,
-        forwardedProto  = request.Headers["X-Forwarded-Proto"].ToString(),
-        forwardedHost   = request.Headers["X-Forwarded-Host"].ToString(),
-        corsAllowedOrigins = allowedOrigins,
-        extraCorsOrigin = Environment.GetEnvironmentVariable("EXTRA_CORS_ORIGIN"),
-        note = scheme == "https"
-            ? "OK — ForwardedHeaders are working; ReturnUrl will be the public https origin."
-            : "WARNING — scheme is not https. Check UseForwardedHeaders placement in Program.cs."
-    });
-});
-
 // Diagnostic-only: resolves apitest.cybersource.com from this server, to compare against DNS
 // resolution from other origins (e.g. local machine).
 app.MapGet("/api/diag/dns", async () =>

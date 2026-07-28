@@ -151,7 +151,7 @@
                 <div id="securityCode-container" class="border border-1 rounded p-2" style="background-color:white; width: 100px; height: 40px;"></div>
             </div>
 
-            <button type="button" id="pay-button" class="btn btn-primary">Pay</button>
+            <button type="button" id="pay-button" class="btn btn-primary" disabled>Pay</button>
             <input type="hidden" id="flexresponse" name="flexresponse">
         </form>
     </div>
@@ -241,7 +241,7 @@
                                     Follow on Actions
                                 </button>
                                 <ul class="dropdown-menu">
-                                    <li><a class="dropdown-item" href="void">New Flex Checkout</a></li>
+                                    <li><a class="dropdown-item" href="/flexcheckout">New Flex Checkout</a></li>
                                     <li><a class="dropdown-item" href="/">Home</a></li>
                                 </ul>
                             </div>
@@ -311,11 +311,13 @@
         var errorsOutput = document.querySelector('#errors-output');
         var numberContainer = document.getElementById('number-container');
         var securityCodeContainer = document.getElementById('securityCode-container');
+        var payButton = document.querySelector('#pay-button');
 
         errorsOutput.textContent = '';
         errorsOutput.className = '';
         statusDiv.textContent = 'Initializing FlexMicroform...';
         statusDiv.className = 'text-muted small mb-2';
+        if (payButton) payButton.disabled = true;
 
         // Clear out any previously-inserted (possibly broken) field iframes first —
         // CyberSource's testflex sandbox occasionally returns an intermittent HTTP 520
@@ -336,6 +338,7 @@
 
         statusDiv.textContent = 'FlexMicroform ready — enter card details';
         statusDiv.className = 'text-success small mb-2';
+        if (payButton) payButton.disabled = false;
 
         number.on('change', function (data) {
             console.log('FlexMicroform number:change', JSON.stringify(data));
@@ -375,6 +378,7 @@
 
         payButton.addEventListener('click', function () {
             console.log('Pay button clicked — calling createToken');
+            payButton.disabled = true;
             statusDiv.textContent = 'Tokenizing...';
             statusDiv.className = 'text-info small mb-2';
             errorsOutput.textContent = '';
@@ -405,6 +409,7 @@
                     errorsOutput.className = 'alert alert-danger';
                     statusDiv.textContent = 'Tokenization failed — see error above';
                     statusDiv.className = 'text-danger small mb-2';
+                    payButton.disabled = false;
                 } else {
                     console.log("Transient Token from Flex Script:", JSON.stringify(token));
                     flexResponse.value = JSON.stringify(token);
