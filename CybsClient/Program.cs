@@ -118,6 +118,9 @@ var defaultAllowed = new[]
     "https://www.testccprocessor.com",
     "https://testccprocessor.com",
     "https://cybsclient.azurewebsites.net",
+    "https://cybscombined.azurewebsites.net",
+    "https://www.ahw001.com",
+    "https://ahw001.com",
     "https://localhost:7173",
     "https://localhost:7133",
     "http://localhost:5173",
@@ -482,8 +485,38 @@ app.MapPost("/stepup-callback", async (HttpContext http) =>
     var form = await http.Request.ReadFormAsync();
     var transactionId = form["TransactionId"].ToString();
     var guid = form["MD"].ToString();
-    var redirectUrl = $"/stepup-complete?transactionId={transactionId}&guid={guid}";
-    var html = $@"
+
+    string html;
+    if (guid == "inpage")
+    {
+        // Consolidated flow (FlexConsolidatedCheckout) sets MD to this sentinel: its
+        // transaction state lives in the Blazor circuit, so a top-level navigation here
+        // would destroy everything. Instead, notify the host page and stay put — the
+        // page auto-runs its validate+authorize path on the still-live circuit.
+        // window.top (not window.parent) because the ACS renders this response inside
+        // Cardinal's nested iframe; the host page is the top browsing context.
+        var payload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            source = "cybs-stepup-callback",
+            transactionId
+        });
+        html = $@"
+    <html>
+        <head><title>Challenge complete</title></head>
+        <body>
+            <script>
+                window.top.postMessage({payload}, window.location.origin);
+            </script>
+        </body>
+    </html>";
+    }
+    else
+    {
+        // Legacy flow (PaStepUp): MD carries the persisted-session GUID; the completion
+        // page rehydrates state from the database on a fresh circuit, so the top-level
+        // redirect is the designed hand-off.
+        var redirectUrl = $"/stepup-complete?transactionId={transactionId}&guid={guid}";
+        html = $@"
     <html>
         <head><title>Redirecting...</title></head>
         <body>
@@ -492,6 +525,7 @@ app.MapPost("/stepup-callback", async (HttpContext http) =>
             </script>
         </body>
     </html>";
+    }
 
     http.Response.Headers.Append("Access-Control-Allow-Private-Network", "true");
     return Results.Content(html, "text/html");

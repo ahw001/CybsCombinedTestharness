@@ -593,6 +593,22 @@
         }
     }, false);
 
+    // Step-up completion: /stepup-callback (same origin, rendered inside the nested
+    // challenge iframe) postMessages window.top when the challenge finishes on a
+    // public origin. Never fires on localhost (Chrome blocks the ACS callback) —
+    // the manual Validate buttons remain the local fallback.
+    window.addEventListener("message", function (event) {
+        if (event.origin === window.location.origin
+            && event.data && event.data.source === 'cybs-stepup-callback') {
+            console.log("flexcx: Received step-up completion from /stepup-callback");
+            if (window.flexcx_dotNetObjectReference) {
+                window.flexcx_dotNetObjectReference.invokeMethodAsync('ReceiveStepUpCallback', JSON.stringify(event.data));
+            } else {
+                console.error('flexcx: dotNetObjectReference is not set.');
+            }
+        }
+    }, false);
+
     window.flexcx_collectBrowserDeviceInfo = function () {
         return {
             language: navigator.language || navigator.userLanguage || "",
@@ -717,6 +733,10 @@
     private bool _cardScriptInitPending = false;
     private bool _cardinalSubmitPending = false;
     private bool _stepUpSubmitPending = false;
+
+    // One-shot guard: the step-up callback postMessage must trigger validate+auth
+    // exactly once even if the message is delivered/replayed more than once.
+    private bool _stepUpCallbackHandled = false;
 
     // ── Provision Network Token (non-payment) state ──────────────────────────
     // Uses the Flex Microform transientCtxToken already captured by ReceiveTransientToken
@@ -1233,7 +1253,11 @@
                 var caInfo = followOnTransResponse.ConsumerAuthenticationInformation!;
                 stepUpAuthUrl = caInfo.StepUpUrl;
                 stepUpJwt = caInfo.AccessToken;
-                stepUpMd = Guid.NewGuid().ToString();
+                // Sentinel echoed back by the ACS as MD: tells /stepup-callback this
+                // challenge belongs to the in-page (circuit-preserving) flow — the
+                // callback then postMessages the host page instead of top-navigating,
+                // which would destroy this circuit and all in-memory state.
+                stepUpMd = "inpage";
 
                 stage = Stage.Challenge;
                 _stepUpSubmitPending = true;
@@ -1295,6 +1319,38 @@
     }
 
     // ── Stage 5: Challenge (3DS step-up) ─────────────────────────────────────
+
+    [JSInvokable]
+    public async Task ReceiveStepUpCallback(string payload)
+    {
+        Console.WriteLine($"flexcx: Step-up callback message: {payload}");
+
+        // Only meaningful while the challenge modal is up, and only once.
+        if (stage != Stage.Challenge || _stepUpCallbackHandled)
+        {
+            return;
+        }
+        _stepUpCallbackHandled = true;
+
+        // The echoed transactionId is informational only — the in-memory
+        // authenticationTransactionId (set when enrollment returned PARes=C)
+        // stays authoritative for the validate call.
+        try
+        {
+            var node = JsonNode.Parse(payload);
+            var echoedId = node?["transactionId"]?.GetValue<string>();
+            if (!string.IsNullOrEmpty(echoedId) && echoedId != authenticationTransactionId)
+            {
+                Console.WriteLine($"flexcx: callback transactionId '{echoedId}' differs from in-memory '{authenticationTransactionId}' — using in-memory value.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"flexcx: could not parse step-up callback payload: {ex.Message}");
+        }
+
+        await ValidateAndAuthorize();
+    }
 
     private async Task ValidateOnly()
     {
@@ -1470,6 +1526,7 @@
         selectedExpYear = "2027";
 
         ntAutoStarted = false;
+        _stepUpCallbackHandled = false;
         StateHasChanged();
     }
 

@@ -153,32 +153,6 @@ public partial class CybsDbContext : DbContext
     public virtual DbSet<BoardingTransactingMerchantProductSubscription> BoardingTransactingMerchantProductSubscriptions { get; set; }
     // =======================================================
 
-    // ******************** Uncomment this method to use Winhost ********************
-
-    /*
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        var csb = new SqlConnectionStringBuilder
-        {
-            DataSource = "tcp:s33.winhost.com",
-            InitialCatalog = "DB_166624_cybssampledb",
-            UserID = "DB_166624_cybssampledb_user",
-            Password = "Anetpw!999",
-            Encrypt = true,
-            TrustServerCertificate = true,
-            MultipleActiveResultSets = true,
-            // Azure App Service Linux containers have IPv6 enabled by default; Microsoft.Data.SqlClient's
-            // managed SNI layer races IPv4/IPv6 connection attempts, and a known bug in that racing logic
-            // surfaces as a generic "SocketException: Success" wrapped inside SniTcpHandle.Connect — even
-            // though a plain single-stack TCP connect to the same host/port succeeds instantly. Forcing
-            // IPv4-only sidesteps the race entirely.
-            IPAddressPreference = SqlConnectionIPAddressPreference.IPv4First
-        };
-
-        optionsBuilder.UseSqlServer(csb.ConnectionString, o =>
-            o.EnableRetryOnFailure()); // optional: connection resiliency
-    }
-    */
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         => optionsBuilder.UseSqlite(

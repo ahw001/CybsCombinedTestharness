@@ -264,13 +264,17 @@
                     if (guidResponse != null && Guid.TryParse(guidResponse, out var parsedGuid))
                     {
                         Console.WriteLine($"GUID RETURNED FROM SERVER: {guidResponse}");
+                        jwtReady = true;
                     }
                     else
                     {
+                        // Fail fast: without a persisted-session GUID the ACS's MD echo comes
+                        // back empty and /stepup-complete can never rehydrate state — launching
+                        // the challenge would doom its completion. Surface the error instead.
                         Console.WriteLine("NO GUID RETURNED FROM SERVER");
+                        error = "Session persist failed — cannot launch a completable 3DS challenge. Check the /api/session/sessionstore response in the API log and retry.";
+                        showInitialForm = false;
                     }
-
-                    jwtReady = true;
 
                 }
 
