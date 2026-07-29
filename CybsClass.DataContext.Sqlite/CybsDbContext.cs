@@ -114,7 +114,7 @@ public partial class CybsDbContext : DbContext
     // ===============================================================
 
     // ==================== Unified Checkout Store Configuration ====================
-    // DbSet name matches the table name exactly (singular) — see the NetworkTokenTestCard
+    // DbSet name matches the table name exactly (singular) â€” see the NetworkTokenTestCard
     // naming-bug precedent; EF Core maps table name to this property name by convention.
     public virtual DbSet<UnifiedCheckoutConfiguration> UnifiedCheckoutConfiguration { get; set; }
     // =================================================================================
@@ -155,8 +155,15 @@ public partial class CybsDbContext : DbContext
 
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+        // FK enforcement in SQLite is per-connection. Microsoft.Data.Sqlite already
+        // sets PRAGMA foreign_keys=1 by default (verified empirically against
+        // 10.0.10 - raw SQLite defaults it OFF, the provider does not), so this
+        // keyword pins that behaviour explicitly rather than being what enables it.
+        // What actually gives the constraints teeth is mssql_to_sqlite.py emitting
+        // FOREIGN KEY clauses into the schema at all - before that they did not exist.
         => optionsBuilder.UseSqlite(
-            "Data Source=" + Path.Combine(AppContext.BaseDirectory, "Data", "CybsSampleDb.sqlite"));
+            "Data Source=" + Path.Combine(AppContext.BaseDirectory, "Data", "CybsSampleDb.sqlite")
+            + ";Foreign Keys=True");
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

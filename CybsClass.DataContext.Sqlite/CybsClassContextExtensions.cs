@@ -15,7 +15,14 @@ public static class CybsClassContextExtensions
       this IServiceCollection services, // The type to extend.
       string? connectionString = null)
     {
-        connectionString ??= "Data Source=" + Path.Combine(AppContext.BaseDirectory, "Data", "CybsSampleDb.sqlite");
+        // FK enforcement in SQLite is per-connection. Microsoft.Data.Sqlite already sets
+        // PRAGMA foreign_keys=1 by default (verified empirically against 10.0.10 - raw
+        // SQLite defaults it OFF, the provider does not), so this keyword pins that
+        // behaviour explicitly rather than being what enables it. What actually gives the
+        // constraints teeth is mssql_to_sqlite.py emitting FOREIGN KEY clauses into the
+        // schema at all - before that they did not exist to enforce.
+        connectionString ??= "Data Source=" + Path.Combine(AppContext.BaseDirectory, "Data", "CybsSampleDb.sqlite")
+            + ";Foreign Keys=True";
 
         services.AddDbContext<CybsDbContext>(options =>
         {

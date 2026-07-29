@@ -18,7 +18,11 @@ public static class CallForCybsPayByLinkCreate
 
         try
         {
-            string purchaseNumber = Guid.NewGuid().ToString("N");
+            // CyberSource rejects purchaseInformation.purchaseNumber above 20 characters
+            // ("Invalid purchaseNumber. purchaseNumber cannot exceed 20 characters"), and a
+            // GUID in "N" format is 32 - so every create request failed validation before
+            // reaching the payment link. 20 hex characters still leaves ~80 bits of entropy.
+            string purchaseNumber = Guid.NewGuid().ToString("N").Substring(0, 20);
 
             string totalAmountStr = (dto.TotalAmount ?? 0m).ToString("0.00");
 
