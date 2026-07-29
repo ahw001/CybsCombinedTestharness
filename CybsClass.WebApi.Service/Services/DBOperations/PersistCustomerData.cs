@@ -101,13 +101,25 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 
                 if (b2cCustomerDto is not null && b2cCustomerDto.Cart is not null)
                 {
-                    foreach (var product in b2cCustomerDto.Cart)
+                    // OrderDetail's key is the composite (OrderId, ProductId), so the same
+                    // product appearing twice in the cart must become one row with a quantity
+                    // rather than two colliding rows. Mirrors DBCustomerServices.InsertB2CCustomerAsync.
+                    var groupedCart = b2cCustomerDto.Cart
+                        .GroupBy(p => p.ProductId)
+                        .Select(g => new
+                        {
+                            ProductId = g.Key,
+                            Quantity = (short)g.Count(),
+                            UnitPrice = g.First().UnitPrice ?? 0m
+                        });
+
+                    foreach (var product in groupedCart)
                     {
                         var orderDetails = new OrderDetail();
                         orderDetails.OrderId = o.OrderId;
                         orderDetails.ProductId = product.ProductId;
-                        orderDetails.Quantity = 1;
-                        orderDetails.UnitPrice = product.UnitPrice ?? 0m;
+                        orderDetails.Quantity = product.Quantity;
+                        orderDetails.UnitPrice = product.UnitPrice;
 
                         db.OrderDetails.Add(orderDetails);
                     }
