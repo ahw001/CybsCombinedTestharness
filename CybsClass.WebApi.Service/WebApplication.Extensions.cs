@@ -402,16 +402,33 @@ public static class WebApplicationExtensions
 
             FollowOnTransJson? followOnTransJson = new FollowOnTransJson();
 
+            var followOnOptions = new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+            Console.WriteLine($"api/followontrans INBOUND JSON: {JsonSerializer.Serialize(followOnTransDto, followOnOptions)}");
+
             JsonNode followOnTransJsonResponse = await CallForCybsFollowOn.RunAsyncFollowOnJsonObject(originalTransId!, amount!, folloOnTransValue.ToString());
 
             followOnTransJson = JsonSerializer.Deserialize<FollowOnTransJson>(followOnTransJsonResponse.ToString()!);
-            string status = (string)followOnTransJsonResponse!["status"]!;
 
             if (followOnTransJson is not null)
             {
                 dbResults = await PersistFollowOnTransaction.InsertFollowOnTransaction(followOnTransJsonResponse, followOnTransJson, followOnTransDto);
 
+                // The capture/void/refund already succeeded at CyberSource by this point, so a
+                // persistence failure must not turn into a 500 — and must not be silently dropped
+                // either, which is what happened before: dbResults was assigned and never read, so
+                // a failed insert still returned a clean-looking PENDING response. Mirrors the
+                // handling in api/authtransaction. Deliberately NOT named "error": the client's
+                // JsonErrorExtractor treats an "error" property as a failed transaction, and this
+                // is a successful transaction that merely failed to persist.
+                if (dbResults.TryGetValue(DbErrorHandler.ErrorKey, out object? persistError))
+                {
+                    followOnTransJsonResponse["dbPersistError"] = persistError?.ToString();
+                    await Console.Out.WriteLineAsync($"-------------- DB PERSIST FAILED: {persistError}");
+                }
             }
+
+            Console.WriteLine($"api/followontrans OUTBOUND JSON: {JsonSerializer.Serialize(followOnTransJsonResponse, followOnOptions)}");
+
             return Results.Json(followOnTransJsonResponse);
 
         })
