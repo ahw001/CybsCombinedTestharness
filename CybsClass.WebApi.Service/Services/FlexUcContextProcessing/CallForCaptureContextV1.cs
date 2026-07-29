@@ -46,6 +46,13 @@ namespace CybsClass.WebApi.Service.Services.FlexUcContextProcessing
                     Country = config?.Country ?? "US",
                     Locale = config?.Locale ?? "en_US",
                     ButtonType = config?.ButtonType,
+                    // Reserved UnifiedCheckoutConfiguration.CompleteMandateType column, now live:
+                    // when set (AUTH/CAPTURE/PREFER_AUTH) the session request carries an explicit
+                    // completeMandate; when empty the merchant's Business Center default governs
+                    // (this account's default is CAPTURE ⇒ autoProcessing).
+                    CompleteMandate = string.IsNullOrWhiteSpace(config?.CompleteMandateType)
+                        ? null
+                        : new UnifiedCheckoutV1CompleteMandate { Type = config!.CompleteMandateType },
                     CaptureMandate = new UnifiedCheckoutV1CaptureMandate
                     {
                         BillingType = config?.BillingType ?? "FULL",

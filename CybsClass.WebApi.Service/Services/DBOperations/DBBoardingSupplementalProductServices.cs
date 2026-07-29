@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using CybsClass.Cybersource.Models.DTOs;
@@ -95,7 +95,7 @@ public static class DBBoardingDigitalPaymentsServices
     };
 
     private static void LogErr(string method, Exception ex) =>
-        Console.WriteLine($"[DBBoardingDigitalPayments] {method} error: {ex.Message}{(ex.InnerException is null ? "" : " | inner: " + ex.InnerException.Message)}");
+        DbErrorHandler.Log($"DBBoardingDigitalPayments.{method}", ex);
 }
 
 // ── Invoicing ────────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ public static class DBBoardingInvoicingServices
     };
 
     private static void LogErr(string method, Exception ex) =>
-        Console.WriteLine($"[DBBoardingInvoicing] {method} error: {ex.Message}{(ex.InnerException is null ? "" : " | inner: " + ex.InnerException.Message)}");
+        DbErrorHandler.Log($"DBBoardingInvoicing.{method}", ex);
 }
 
 // ── Pay By Link ──────────────────────────────────────────────────────────
@@ -251,7 +251,7 @@ public static class DBBoardingPayByLinkServices
     };
 
     private static void LogErr(string method, Exception ex) =>
-        Console.WriteLine($"[DBBoardingPayByLink] {method} error: {ex.Message}{(ex.InnerException is null ? "" : " | inner: " + ex.InnerException.Message)}");
+        DbErrorHandler.Log($"DBBoardingPayByLink.{method}", ex);
 }
 
 // ── Token Management ─────────────────────────────────────────────────────
@@ -410,7 +410,7 @@ public static class DBBoardingTokenManagementServices
     };
 
     private static void LogErr(string method, Exception ex) =>
-        Console.WriteLine($"[DBBoardingTokenManagement] {method} error: {ex.Message}{(ex.InnerException is null ? "" : " | inner: " + ex.InnerException.Message)}");
+        DbErrorHandler.Log($"DBBoardingTokenManagement.{method}", ex);
 }
 
 // ── Unified Checkout ─────────────────────────────────────────────────────
@@ -538,7 +538,7 @@ public static class DBBoardingUnifiedCheckoutServices
     };
 
     private static void LogErr(string method, Exception ex) =>
-        Console.WriteLine($"[DBBoardingUnifiedCheckout] {method} error: {ex.Message}{(ex.InnerException is null ? "" : " | inner: " + ex.InnerException.Message)}");
+        DbErrorHandler.Log($"DBBoardingUnifiedCheckout.{method}", ex);
 }
 
 // ── Value Added Services ─────────────────────────────────────────────────
@@ -625,7 +625,7 @@ public static class DBBoardingValueAddedServicesServices
     };
 
     private static void LogErr(string method, Exception ex) =>
-        Console.WriteLine($"[DBBoardingVas] {method} error: {ex.Message}{(ex.InnerException is null ? "" : " | inner: " + ex.InnerException.Message)}");
+        DbErrorHandler.Log($"DBBoardingVas.{method}", ex);
 }
 
 // ── Virtual Terminal ─────────────────────────────────────────────────────
@@ -822,7 +822,7 @@ public static class DBBoardingVirtualTerminalServices
     }
 
     private static void LogErr(string method, Exception ex) =>
-        Console.WriteLine($"[DBBoardingVirtualTerminal] {method} error: {ex.Message}{(ex.InnerException is null ? "" : " | inner: " + ex.InnerException.Message)}");
+        DbErrorHandler.Log($"DBBoardingVirtualTerminal.{method}", ex);
 }
 
 // ── Payer Authentication ─────────────────────────────────────────────────
@@ -987,7 +987,7 @@ public static class DBBoardingPayerAuthenticationServices
     };
 
     private static void LogErr(string method, Exception ex) =>
-        Console.WriteLine($"[DBBoardingPayerAuth] {method} error: {ex.Message}{(ex.InnerException is null ? "" : " | inner: " + ex.InnerException.Message)}");
+        DbErrorHandler.Log($"DBBoardingPayerAuth.{method}", ex);
 }
 
 // ── Junction (polymorphic) ───────────────────────────────────────────────
@@ -1058,7 +1058,7 @@ public static class DBBoardingMerchantProductSubscriptionServices
     }
 
     private static void LogErr(string method, Exception ex) =>
-        Console.WriteLine($"[DBBoardingMps] {method} error: {ex.Message}{(ex.InnerException is null ? "" : " | inner: " + ex.InnerException.Message)}");
+        DbErrorHandler.Log($"DBBoardingMps.{method}", ex);
 
     public static BoardingTransactingMerchantProductSubscriptionDto ToDto(BoardingTransactingMerchantProductSubscription e) => new()
     {

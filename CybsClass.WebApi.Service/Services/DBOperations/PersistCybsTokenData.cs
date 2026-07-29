@@ -8,25 +8,20 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class PersistCybsTokenData
     {
-        private static Dictionary<string, string> dbResults = new Dictionary<string, string>();
-
-        private static string statusNode = string.Empty;
-
-        private static string customerInstId = string.Empty;
-
         public static async Task<Dictionary<string, string>> TokenDBOps(int customerId, JsonObject jsonObject)
         {
+            Dictionary<string, string> dbResults = new();
+            string customerInstId = string.Empty;
+
             try
             {
-                dbResults = new();
-
                 Console.WriteLine("Inserting token data ...");
 
                 JsonDocument document = JsonDocument.Parse(jsonObject.ToString());
 
                 if (document.RootElement.TryGetProperty("status", out JsonElement statusElement))
                 {
-                    statusNode = statusElement.GetString()!;
+                    string statusNode = statusElement.GetString()!;
                     if (statusNode == "AUTHORIZED")
                     {
                         ZeroAuthRootToken zeroAuthRootToken = JsonSerializer.Deserialize<ZeroAuthRootToken>(jsonObject.ToString())!;
@@ -77,9 +72,8 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                         }
                         catch (Exception ex)
                         {
-                            dbResults.Add("Error in Customer Token Persistance", ex.Message);
-                            Console.WriteLine($"Exception: {ex.Message}");
-
+                            DbErrorHandler.Log($"{nameof(TokenDBOps)} (customer token)", ex);
+                            dbResults[DbErrorHandler.ErrorKey] = ex.GetBaseException().Message;
                         }
                     }
                 }
@@ -114,10 +108,8 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("Exception in Token Persistance", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log(nameof(TokenDBOps), ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
             return dbResults;
         }

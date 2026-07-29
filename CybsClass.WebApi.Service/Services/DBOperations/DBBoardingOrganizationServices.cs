@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.EntityModels;
 
@@ -24,7 +24,7 @@ public static class DBBoardingOrganizationServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingOrg] Create error: {ex}");
+            DbErrorHandler.Log(nameof(CreateAsync), ex);
             return null;
         }
     }
@@ -43,7 +43,7 @@ public static class DBBoardingOrganizationServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingOrg] GetAll error: {ex}");
+            DbErrorHandler.Log(nameof(GetAllAsync), ex);
             return new List<BoardingOrganization>();
         }
     }
@@ -62,7 +62,7 @@ public static class DBBoardingOrganizationServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingOrg] GetById error: {ex}");
+            DbErrorHandler.Log(nameof(GetByIdAsync), ex);
             return null;
         }
     }
@@ -80,7 +80,7 @@ public static class DBBoardingOrganizationServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingOrg] GetByOrganizationId error: {ex}");
+            DbErrorHandler.Log(nameof(GetByOrganizationIdAsync), ex);
             return null;
         }
     }
@@ -108,7 +108,7 @@ public static class DBBoardingOrganizationServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingOrg] Update error: {ex}");
+            DbErrorHandler.Log(nameof(UpdateAsync), ex);
             return null;
         }
     }
@@ -125,7 +125,7 @@ public static class DBBoardingOrganizationServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingOrg] Delete error: {ex}");
+            DbErrorHandler.Log(nameof(DeleteAsync), ex);
             return false;
         }
     }

@@ -6,21 +6,24 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class DBCybsTokenServices
     {
-        private static Dictionary<string, string> dbResult = new();
-
         public static async Task<Dictionary<string, string>> UpdateCustomerInstIdAsync(int customerId, B2cCustomerDto b2cCustomerDto)
         {
-            using CybsDbContext db = new();
-            try 
+            Dictionary<string, string> dbResult = new();
+
+            try
             {
+                using CybsDbContext db = new();
                 var affected = await db.PaymentCardInfos
                     .Where(model => model.B2cCustomerId == customerId).ExecuteUpdateAsync(setters => setters
                         .SetProperty(m => m.CustomerInstrumentId, b2cCustomerDto.CustomerInstrumentId)
                         .SetProperty(m => m.MerchantCustomerId, b2cCustomerDto.MerchantCustomerID)
                     );
                 dbResult.Add("Affected", affected.ToString());
-            } catch (Exception ex) {
-                dbResult.Add("Error", ex.Message);
+            }
+            catch (Exception ex)
+            {
+                DbErrorHandler.Log(nameof(UpdateCustomerInstIdAsync), ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
 
             return dbResult;
@@ -28,9 +31,11 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 
         public static async Task<Dictionary<string, string>> UpdatePaymentCardInstId(int customerId, B2cCustomerDto b2cCustomerDto)
         {
-            using CybsDbContext db = new();
+            Dictionary<string, string> dbResult = new();
+
             try
             {
+                using CybsDbContext db = new();
                 var affected = await db.PaymentCardInfos
                     .Where(model => model.B2cCustomerId == customerId).ExecuteUpdateAsync(setters => setters
                         .SetProperty(m => m.InstrumentIdentifierId, b2cCustomerDto.InstrumentIdentifier)
@@ -39,30 +44,30 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                dbResult.Add("Error", ex.Message);
+                DbErrorHandler.Log(nameof(UpdatePaymentCardInstId), ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
 
             return dbResult;
         }
 
         public static async Task<Dictionary<string, string>> GetNetworkTokenCountById(int paymentCardId)
-        { 
+        {
             Dictionary<string, string> dbResults = new();
 
-            using CybsDbContext db = new();
             try
             {
+                using CybsDbContext db = new();
                 var affected = await db.NetworkTokenInfos
                        .Where(nt => nt.PaymentCardId == paymentCardId)
                        .CountAsync();
                 dbResults.Add("Network Token Count:", affected.ToString());
                 return dbResults;
             }
-            catch (Exception ex) 
-            { 
-                string error = ex.Message;
-                dbResults.Add("Exception", error);
-                return dbResults;
+            catch (Exception ex)
+            {
+                DbErrorHandler.Log(nameof(GetNetworkTokenCountById), ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
         }
     }

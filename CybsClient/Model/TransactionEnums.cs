@@ -130,6 +130,10 @@ namespace CybsClient.Model
         // ── Boarding: Dashboard ───────────────────────────────────────────────
         GetBoardingDashboard,
 
+        // ── Store Unified Checkout: manual transient-token pattern ────────────
+        UNIFIED_CHECKOUT_V0_CONTEXT,     // POST /api/tokens/v0sessioncontext (config-driven v0 ctx)
+        UNIFIED_CHECKOUT_TOKEN_PAYMENT,  // POST /api/unified/v1tokenpayment (follow-on /pts/v2/payments)
+
     }
     public enum TransactionStateValues
     {

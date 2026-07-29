@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.EntityModels;
 
@@ -211,7 +211,7 @@ public static class DBBoardingDashboardServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingDashboard] GetDashboard error: {ex.Message}{(ex.InnerException is null ? "" : " | inner: " + ex.InnerException.Message)}");
+            DbErrorHandler.Log(nameof(GetDashboardAsync), ex);
             return null;
         }
     }

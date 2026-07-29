@@ -1,4 +1,4 @@
-using CybsClass.Cybersource.Models.DTOs;
+﻿using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.Cybersource.Models.BaseData;
 using CybsClass.Cybersource.Transactions;
 using CybsClass.EntityModels;
@@ -65,17 +65,28 @@ public static class ApplePayEndpoints
                     CallForApplePayAuth.LastDecryptedTokenJson,
                     CallCyberSource.LastRequestSent);
 
-                if (dbResults.TryGetValue("OrderId", out var orderId))
+                // The payment already succeeded, so a persistence failure is reported alongside
+                // the response — not as an error status. Named "dbPersistError" deliberately:
+                // the client treats an "error" property as a failed transaction.
+                if (dbResults.TryGetValue(DbErrorHandler.ErrorKey, out var persistError))
                 {
-                    jsonNode["OrderId"] = orderId.ToString();
+                    jsonNode["dbPersistError"] = persistError?.ToString();
+                    Console.WriteLine($"api/applepay/authorize -------------- DB PERSIST FAILED: {persistError}");
                 }
-                if (dbResults.TryGetValue("B2cCustomerId", out var b2cCustomerId))
+                else
                 {
-                    jsonNode["B2cCustomerId"] = b2cCustomerId.ToString();
-                }
-                if (dbResults.TryGetValue("ApplePayTransactionsId", out var applePayId))
-                {
-                    jsonNode["ApplePayTransactionsId"] = applePayId.ToString();
+                    if (dbResults.TryGetValue("OrderId", out var orderId))
+                    {
+                        jsonNode["OrderId"] = orderId.ToString();
+                    }
+                    if (dbResults.TryGetValue("B2cCustomerId", out var b2cCustomerId))
+                    {
+                        jsonNode["B2cCustomerId"] = b2cCustomerId.ToString();
+                    }
+                    if (dbResults.TryGetValue("ApplePayTransactionsId", out var applePayId))
+                    {
+                        jsonNode["ApplePayTransactionsId"] = applePayId.ToString();
+                    }
                 }
             }
 
@@ -111,21 +122,25 @@ public static class ApplePayEndpoints
         .Produces<JsonNode>(StatusCodes.Status200OK);
 
         group.MapGet("/count", async () =>
-            Results.Ok(await DBApplePayTransactionServices.GetApplePayTransactionCountAsync()))
+            (await DBApplePayTransactionServices.GetApplePayTransactionCountAsync()).ToOkOrError())
             .WithName("GetApplePayTransactionCount");
 
         group.MapGet("/", async (HttpContext httpContext) =>
         {
             var applePayTransactions = await DBApplePayTransactionServices.GetApplePayTransactions();
             var applePayTransaction = applePayTransactions.LastOrDefault();
-            return applePayTransaction != null ? Results.Ok(applePayTransactions) : Results.NotFound();
+            return applePayTransaction != null
+                ? Results.Ok(applePayTransactions)
+                : Results.Json(DbErrorHandler.BuildNotFound("No Apple Pay transactions found."));
         })
         .WithName("GetAllApplePayTransactions");
 
-        group.MapGet("/{id}", async Task<Results<Ok<ApplePayTransactionDto>, NotFound>> ([FromRoute] int id) =>
+        group.MapGet("/{id}", async ([FromRoute] int id) =>
         {
             var dto = await DBApplePayTransactionServices.GetApplePayTransactionByUsingId(id);
-            return dto == null ? TypedResults.NotFound() : TypedResults.Ok(dto);
+            return dto == null
+                ? Results.Json(DbErrorHandler.BuildNotFound($"No Apple Pay transaction found with id {id}."))
+                : Results.Ok(dto);
         })
         .WithName("GetApplePayTransactionById");
     }

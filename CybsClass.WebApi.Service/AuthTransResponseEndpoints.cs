@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http.HttpResults;
 using CybsClass.EntityModels;
 using CybsClass.WebApi.Service.Services.DBOperations;
@@ -14,7 +14,7 @@ public static class AuthTransResponseEndpoints
 
         group.MapGet("/count", async () =>
         {
-            return Results.Ok(await DBAuthTransResponseServices.GetAuthTransResponseCountAsync());
+            return (await DBAuthTransResponseServices.GetAuthTransResponseCountAsync()).ToOkOrError();
         })
         .WithName("GetAuthTransResponseCount");
 
@@ -26,21 +26,19 @@ public static class AuthTransResponseEndpoints
             {
                 return Results.Ok(authTransResponses);
             }
-            else
-            {
-                return Results.NotFound();
-            }
+
+            return Results.Json(DbErrorHandler.BuildNotFound("No Auth Trans Responses found."));
         })
         .WithName("GetAllAuthTransResponses");
 
-        group.MapGet("/{id}", async Task<Results<Ok<AuthTransResponseDto>, NotFound>> ([FromRoute] int id) =>
+        group.MapGet("/{id}", async ([FromRoute] int id) =>
         {
             var authTransResponseDto = await DBAuthTransResponseServices.GetAuthTransResponseByUsingId(id);
             if (authTransResponseDto == null)
             {
-                return TypedResults.NotFound();
+                return Results.Json(DbErrorHandler.BuildNotFound($"No Auth Trans Response found with id {id}."));
             }
-            return TypedResults.Ok(authTransResponseDto);
+            return Results.Ok(authTransResponseDto);
         })
         .WithName("GetAuthTransResponseById");
 

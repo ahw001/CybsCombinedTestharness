@@ -15,6 +15,34 @@ namespace CybsClass.WebApi.Service;
 
 public static class TokenEndpoints
 {
+    /// <summary>
+    /// Attaches the capture context and the customer/order ids produced by
+    /// <see cref="DBCustomerServices.InsertB2CCustomerAsync"/>. The context itself is valid
+    /// whether or not the customer row landed, so it is always returned; a persistence failure
+    /// travels back as an ErrorObject rather than an exception or a silently empty response.
+    /// </summary>
+    private static void ApplyPersistResult(CaptureContextDto ctxDto, string ctx, Dictionary<string, string> dbResults)
+    {
+        ctxDto.Ctx = ctx;
+
+        if (dbResults.TryGetValue(DbErrorHandler.ErrorKey, out string? persistError))
+        {
+            ctxDto.Error = new ErrorObject
+            {
+                Error = "DATABASE_ERROR",
+                Message = persistError,
+                Reason = "Database Error",
+                Action = "Capture context was created, but the customer and order rows were not saved."
+            };
+            return;
+        }
+
+        dbResults.TryGetValue("B2cCustomerId", out string? customerId);
+        dbResults.TryGetValue("OrderId", out string? orderId);
+        ctxDto.B2cCustomerId = customerId;
+        ctxDto.OrderId = orderId;
+    }
+
     public static RouteGroupBuilder GroupTokens(this RouteGroupBuilder group)
     {
         group.MapPost("/retrieval", async ([FromBody] FollowOnTransDto followOnTransDto) =>
@@ -38,14 +66,7 @@ public static class TokenEndpoints
             else
             {
                 dbResults = await DBCustomerServices.InsertB2CCustomerAsync(b2cCustomerDto);
-
-                if (dbResults is not null && dbResults.Count() > 0)
-                {
-                    ctxDto.B2cCustomerId = dbResults["B2cCustomerId"];
-                    ctxDto.OrderId = dbResults["OrderId"];
-                    ctxDto.Ctx = ctx;
-                }
-
+                ApplyPersistResult(ctxDto, ctx, dbResults);
             }
 
             return Results.Ok(ctxDto);
@@ -68,17 +89,38 @@ public static class TokenEndpoints
             else
             {
                 var dbResults = await DBCustomerServices.InsertB2CCustomerAsync(b2cCustomerDto);
-
-                if (dbResults is not null && dbResults.Count() > 0)
-                {
-                    ctxDto.B2cCustomerId = dbResults["B2cCustomerId"];
-                    ctxDto.OrderId = dbResults["OrderId"];
-                    ctxDto.Ctx = ctx;
-                }
+                ApplyPersistResult(ctxDto, ctx, dbResults);
             }
 
             return Results.Ok(ctxDto);
         }).Produces<string>().WithName("CreateUnifiedCheckoutV1Session");
+
+        // v0 capture context built from a saved UnifiedCheckoutConfiguration row — the store
+        // checkout's "manual transient token" vehicle (SecureAcceptance.js show() resolves with
+        // the token; no auto-processing). Additive; the legacy /capturecontext route above and
+        // its hardcoded builder stay untouched.
+        group.MapPost("/v0sessioncontext", static async ([FromBody] B2cCustomerDto b2cCustomerDto) =>
+        {
+            var logOptions = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            Console.WriteLine($"\n[TokenEndpoints] POST /api/tokens/v0sessioncontext INBOUND:\n{JsonSerializer.Serialize(b2cCustomerDto, logOptions)}");
+
+            CaptureContextDto ctxDto = new CaptureContextDto();
+
+            string ctx = await CallForCaptureContextV0FromConfig.RunAsync(b2cCustomerDto);
+
+            if (ctx == null)
+            {
+                return Results.NotFound();
+            }
+            else
+            {
+                var dbResults = await DBCustomerServices.InsertB2CCustomerAsync(b2cCustomerDto);
+                ApplyPersistResult(ctxDto, ctx, dbResults);
+            }
+
+            Console.WriteLine($"\n[TokenEndpoints] POST /api/tokens/v0sessioncontext OUTBOUND:\n{JsonSerializer.Serialize(ctxDto, logOptions)}");
+            return Results.Ok(ctxDto);
+        }).Produces<string>().WithName("CreateUnifiedCheckoutV0SessionFromConfig");
 
         group.MapPost("/flexcapturecontext", async ([FromBody] B2cCustomerDto b2cCustomerDto) =>
         {

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.EntityModels;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.Cybersource.Models.Mappers;
@@ -8,11 +8,12 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public class DBApplePayTransactionServices
     {
-        public static async Task<int> GetApplePayTransactionCountAsync()
-        {
-            using CybsDbContext db = new();
-            return await db.ApplePayTransactions.CountAsync();
-        }
+        public static Task<DbResult<int>> GetApplePayTransactionCountAsync() =>
+            DbErrorHandler.GuardAsync(nameof(GetApplePayTransactionCountAsync), async () =>
+            {
+                using CybsDbContext db = new();
+                return await db.ApplePayTransactions.CountAsync();
+            });
 
         public static async Task<List<ApplePayTransactionDto>> GetApplePayTransactions()
         {
@@ -25,7 +26,7 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error getting full list of Apple Pay Transactions: {ex}");
+                DbErrorHandler.Log(nameof(GetApplePayTransactions), ex);
                 var applePayTransactionDtos = new List<ApplePayTransactionDto>();
                 ApplePayTransactionDto applePayTransactionDto = new ApplePayTransactionDto();
                 applePayTransactionDto.Error = new CybsClass.Cybersource.Models.BaseData.ErrorObject { Error = ex.ToString() };
@@ -50,7 +51,7 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error getting Apple Pay Transaction for ID: {ex}");
+                DbErrorHandler.Log(nameof(GetApplePayTransactionByUsingId), ex);
                 var applePayTransactionDto = new ApplePayTransactionDto();
                 applePayTransactionDto.Error = new CybsClass.Cybersource.Models.BaseData.ErrorObject { Error = ex.ToString() };
                 return applePayTransactionDto;

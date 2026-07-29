@@ -12,28 +12,23 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class PersistTransTokenData
     {
-        private static B2cCustomer b2CCustomer = new B2cCustomer();
-        private static Dictionary<string, object> dbResults = new();
-        private static FollowOnTransJson followOnTransJson = new FollowOnTransJson();
-        static JsonObject? jsonObject = [];
-
-
-        
         public static async Task<Dictionary<string, object>> InsertCustomers(CtxPaymentDto ctxPaymentDto, JsonNode authTransNode)
         {
-              
-            dbResults = new();
-            
+            Dictionary<string, object> dbResults = new();
+
             Console.WriteLine("Inserting transient token data ...");
             try
             {
-                jsonObject = await CallTransTokenInfo.RunAsyncTransTokenInfo(ctxPaymentDto!.TokenInformation!.TransientTokenJwt!);
+                JsonObject? jsonObject = await CallTransTokenInfo.RunAsyncTransTokenInfo(ctxPaymentDto!.TokenInformation!.TransientTokenJwt!);
+
+                FollowOnTransJson followOnTransJson;
 
                 if (jsonObject is null)
                 {
-                    dbResults = new();
-                    dbResults.Add("Exception", "Call for Transient Token Info Failed");
-                    return dbResults;
+                    return new Dictionary<string, object>
+                    {
+                        [DbErrorHandler.ErrorKey] = "Call for Transient Token Info Failed"
+                    };
                 }
                 else
                 {
@@ -76,10 +71,8 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("Exception", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log(nameof(InsertCustomers), ex);
+                return new Dictionary<string, object> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
         }
     }

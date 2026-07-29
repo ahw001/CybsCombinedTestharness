@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.EntityModels;
 
@@ -39,7 +39,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] CreateSubscription error: {ex.Message}");
+            DbErrorHandler.Log(nameof(CreateSubscriptionAsync), ex);
             if (ex.InnerException is not null)
                 Console.WriteLine($"[DBBoardingCardProd] CreateSubscription inner: {ex.InnerException.Message}");
             return null;
@@ -98,7 +98,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] UpdateSubscription error: {ex.Message}");
+            DbErrorHandler.Log(nameof(UpdateSubscriptionAsync), ex);
             if (ex.InnerException is not null)
                 Console.WriteLine($"[DBBoardingCardProd] UpdateSubscription inner: {ex.InnerException.Message}");
             return null;
@@ -121,7 +121,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] GetAll error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetAllAsync), ex);
             return new List<BoardingCardProductSubscription>();
         }
     }
@@ -144,7 +144,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] GetByTransacting error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetByTransactingIdAsync), ex);
             return new List<BoardingCardProductSubscription>();
         }
     }
@@ -164,7 +164,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] GetById error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetSubscriptionByIdAsync), ex);
             return null;
         }
     }
@@ -210,7 +210,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] DeleteSubscription error: {ex.Message}");
+            DbErrorHandler.Log(nameof(DeleteSubscriptionAsync), ex);
             if (ex.InnerException is not null)
                 Console.WriteLine($"[DBBoardingCardProd] DeleteSubscription inner: {ex.InnerException.Message}");
             return false;
@@ -244,7 +244,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] LinkSubscription error: {ex.Message}");
+            DbErrorHandler.Log(nameof(LinkSubscriptionToMerchantAsync), ex);
             return null;
         }
     }
@@ -261,7 +261,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] UpdateCardJunctionIncludeInBoarding error: {ex.Message}");
+            DbErrorHandler.Log(nameof(UpdateCardJunctionIncludeInBoardingAsync), ex);
             return false;
         }
     }
@@ -278,7 +278,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] UnlinkSubscription error: {ex.Message}");
+            DbErrorHandler.Log(nameof(UnlinkSubscriptionFromMerchantAsync), ex);
             return false;
         }
     }
@@ -399,7 +399,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] CloneSubscription error: {ex.Message}");
+            DbErrorHandler.Log(nameof(CloneSubscriptionAsync), ex);
             if (ex.InnerException is not null)
                 Console.WriteLine($"[DBBoardingCardProd] CloneSubscription inner: {ex.InnerException.Message}");
             return null;
@@ -451,7 +451,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] UpsertProcessorConfig error: {ex.Message}");
+            DbErrorHandler.Log(nameof(UpsertProcessorConfigAsync), ex);
             return null;
         }
     }
@@ -468,7 +468,7 @@ public static class DBBoardingCardProductSubscriptionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingCardProd] DeleteProcessorConfig error: {ex.Message}");
+            DbErrorHandler.Log(nameof(DeleteProcessorConfigAsync), ex);
             return false;
         }
     }

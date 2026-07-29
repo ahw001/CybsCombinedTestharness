@@ -169,14 +169,30 @@
                     <div class="col-12"><hr /></div>
                     <div class="col-12">
                         <p class="text-muted small mb-2">
-                            The following are reserved for later execution goals (TMS save-card, 3DS, Decision Manager) —
-                            they are saved with the configuration but not yet wired into the capture context.
+                            Manual transient-token follow-on (the store checkout's "v0 — manual transient token" path,
+                            or v1 when the account returns a token instead of auto-processing): these govern the
+                            follow-on <code>/pts/v2/payments</code> request. 3DS / Decision Manager remain reserved.
                         </p>
                     </div>
 
                     <div class="col-md-3 form-check">
                         <input class="form-check-input" type="checkbox" id="enableTms" @bind="editing.EnableTms" />
-                        <label class="form-check-label" for="enableTms">Enable TMS (future)</label>
+                        <label class="form-check-label" for="enableTms">Send TOKEN_CREATE on manual follow-on</label>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">actionTokenTypes (CSV, manual follow-on)</label>
+                        <input class="form-control" @bind="editing.TmsTokenTypes"
+                               placeholder="customer,paymentInstrument,shippingAddress" />
+                        <div class="form-text">Valid values: customer, paymentInstrument, instrumentIdentifier, shippingAddress. Blank = merchant defaults.</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Complete Mandate Type (v1 session)</label>
+                        <select class="form-select" @bind="editing.CompleteMandateType">
+                            <option value="">(none — Business Center default governs)</option>
+                            <option value="AUTH">AUTH</option>
+                            <option value="CAPTURE">CAPTURE</option>
+                            <option value="PREFER_AUTH">PREFER_AUTH</option>
+                        </select>
                     </div>
                     <div class="col-md-3 form-check">
                         <input class="form-check-input" type="checkbox" id="enable3ds" @bind="editing.Enable3ds" />
@@ -185,15 +201,6 @@
                     <div class="col-md-3 form-check">
                         <input class="form-check-input" type="checkbox" id="enableDm" @bind="editing.EnableDecisionManager" />
                         <label class="form-check-label" for="enableDm">Enable Decision Manager (future)</label>
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label">Complete Mandate Type (future)</label>
-                        <select class="form-select" @bind="editing.CompleteMandateType">
-                            <option value="">(none)</option>
-                            <option value="AUTH">AUTH</option>
-                            <option value="CAPTURE">CAPTURE</option>
-                            <option value="PREFER_AUTH">PREFER_AUTH</option>
-                        </select>
                     </div>
 
                     <div class="col-12 mt-3">

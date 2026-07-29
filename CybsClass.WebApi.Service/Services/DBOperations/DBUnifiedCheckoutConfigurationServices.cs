@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.EntityModels;
 
@@ -7,9 +7,8 @@ namespace CybsClass.WebApi.Service.Services.DBOperations;
 public static class DBUnifiedCheckoutConfigurationServices
 {
     // ── Create ──────────────────────────────────────────────────────────────
-    public static async Task<UnifiedCheckoutConfiguration?> CreateAsync(UnifiedCheckoutConfigurationDto dto)
-    {
-        try
+    public static Task<DbResult<UnifiedCheckoutConfiguration?>> CreateAsync(UnifiedCheckoutConfigurationDto dto) =>
+        DbErrorHandler.GuardAsync<UnifiedCheckoutConfiguration?>(nameof(CreateAsync), async () =>
         {
             var entity = MapFromDto(dto);
             entity.CreatedAt = DateTime.UtcNow;
@@ -20,33 +19,24 @@ public static class DBUnifiedCheckoutConfigurationServices
             await db.SaveChangesAsync();
 
             return entity;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"\n\n[DBUnifiedCheckoutConfiguration] Create error: {ex}");
-            return null;
-        }
-    }
+        });
 
     // ── Read All ─────────────────────────────────────────────────────────────
-    public static async Task<List<UnifiedCheckoutConfiguration>> GetAllAsync()
-    {
-        try
+    public static Task<DbResult<List<UnifiedCheckoutConfiguration>>> GetAllAsync() =>
+        DbErrorHandler.GuardAsync(nameof(GetAllAsync), async () =>
         {
             using CybsDbContext db = new();
             return await db.UnifiedCheckoutConfiguration
                 .AsNoTracking()
                 .OrderBy(c => c.Name)
                 .ToListAsync();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"\n\n[DBUnifiedCheckoutConfiguration] GetAll error: {ex}");
-            return new List<UnifiedCheckoutConfiguration>();
-        }
-    }
+        });
 
     // ── Read by ID ────────────────────────────────────────────────────────────
+    // NOTE: deliberately still returns a bare nullable entity (not DbResult<T>) — it is consumed
+    // by the capture-context builders (CallForCaptureContextV1 / CallForCaptureContextV0FromConfig),
+    // which treat a missing config as "fall back to defaults". Changing this signature would
+    // ripple outside the CRUD surface, so it keeps its sentinel-on-failure behaviour.
     public static async Task<UnifiedCheckoutConfiguration?> GetByIdAsync(int id)
     {
         try
@@ -58,15 +48,14 @@ public static class DBUnifiedCheckoutConfigurationServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBUnifiedCheckoutConfiguration] GetById error: {ex}");
+            DbErrorHandler.Log(nameof(GetByIdAsync), ex);
             return null;
         }
     }
 
     // ── Update ────────────────────────────────────────────────────────────────
-    public static async Task<UnifiedCheckoutConfiguration?> UpdateAsync(int id, UnifiedCheckoutConfigurationDto dto)
-    {
-        try
+    public static Task<DbResult<UnifiedCheckoutConfiguration?>> UpdateAsync(int id, UnifiedCheckoutConfigurationDto dto) =>
+        DbErrorHandler.GuardAsync<UnifiedCheckoutConfiguration?>(nameof(UpdateAsync), async () =>
         {
             using CybsDbContext db = new();
             var entity = await db.UnifiedCheckoutConfiguration
@@ -80,38 +69,25 @@ public static class DBUnifiedCheckoutConfigurationServices
             await db.SaveChangesAsync();
 
             return entity;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"\n\n[DBUnifiedCheckoutConfiguration] Update error: {ex}");
-            return null;
-        }
-    }
+        });
 
     // ── Upsert (create if Id == 0, else update) ──────────────────────────────
-    public static async Task<UnifiedCheckoutConfiguration?> UpsertAsync(UnifiedCheckoutConfigurationDto dto)
+    public static Task<DbResult<UnifiedCheckoutConfiguration?>> UpsertAsync(UnifiedCheckoutConfigurationDto dto)
     {
         return dto.UnifiedCheckoutConfigurationId == 0
-            ? await CreateAsync(dto)
-            : await UpdateAsync(dto.UnifiedCheckoutConfigurationId, dto);
+            ? CreateAsync(dto)
+            : UpdateAsync(dto.UnifiedCheckoutConfigurationId, dto);
     }
 
     // ── Delete ────────────────────────────────────────────────────────────────
-    public static async Task<bool> DeleteAsync(int id)
-    {
-        try
+    public static Task<DbResult<bool>> DeleteAsync(int id) =>
+        DbErrorHandler.GuardAsync(nameof(DeleteAsync), async () =>
         {
             using CybsDbContext db = new();
             return await db.UnifiedCheckoutConfiguration
                 .Where(c => c.UnifiedCheckoutConfigurationId == id)
                 .ExecuteDeleteAsync() > 0;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"\n\n[DBUnifiedCheckoutConfiguration] Delete error: {ex}");
-            return false;
-        }
-    }
+        });
 
     // ── Map helpers ───────────────────────────────────────────────────────────
     private static UnifiedCheckoutConfiguration MapFromDto(UnifiedCheckoutConfigurationDto dto)

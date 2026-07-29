@@ -38,8 +38,30 @@ namespace CybsClass.Cybersource.Models.OutboundTransObjects
         [JsonPropertyName("captureMandate")]
         public UnifiedCheckoutV1CaptureMandate? CaptureMandate { get; set; }
 
+        [JsonPropertyName("completeMandate")]
+        public UnifiedCheckoutV1CompleteMandate? CompleteMandate { get; set; }
+
         [JsonPropertyName("data")]
         public UnifiedCheckoutV1Data? Data { get; set; }
+    }
+
+    // Explicit completeMandate for the v1 session request (SDK model: Ucv1sessionsCompleteMandate).
+    // type: AUTH | CAPTURE | PREFER_AUTH. There is NO value that disables auto-processing —
+    // whether the widget processes the payment itself vs. returns the transient token is
+    // governed by the merchant's Business Center Unified Checkout configuration when this
+    // object is absent. Live-verified 2026-07-28: sending {"type":"CAPTURE"} passes the strict
+    // /uc/v1/sessions schema and the returned ctx carries it merged with the account defaults
+    // (decisionManager, tms.tokenCreate).
+    public class UnifiedCheckoutV1CompleteMandate
+    {
+        [JsonPropertyName("type")]
+        public string? Type { get; set; }
+
+        [JsonPropertyName("decisionManager")]
+        public bool? DecisionManager { get; set; }
+
+        [JsonPropertyName("consumerAuthentication")]
+        public string? ConsumerAuthentication { get; set; }
     }
 
     public class UnifiedCheckoutV1CaptureMandate

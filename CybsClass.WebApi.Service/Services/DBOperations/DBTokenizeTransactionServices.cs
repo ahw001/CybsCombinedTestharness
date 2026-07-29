@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.EntityModels;
 using CybsClass.Cybersource.Models.DTOs;
 using ErrorObject = CybsClass.Cybersource.Models.BaseData.ErrorObject;
@@ -58,7 +58,7 @@ public static class DBTokenizeTransactionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBTokenizeTransactionServices] GetPagedAsync error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetPagedAsync), ex);
             return new PagedResultDto<TokenizeTransactionDto>
             {
                 Error = new ErrorObject { Message = ex.Message }
@@ -101,7 +101,7 @@ public static class DBTokenizeTransactionServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBTokenizeTransactionServices] GetByIdAsync error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetByIdAsync), ex);
             return new TokenizeTransactionDto
             {
                 Error = new ErrorObject { Message = ex.Message }

@@ -47,8 +47,8 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[PersistTokenize] Exception: {ex.Message}");
-                dbResults.Add("Exception in PersistTokenize", ex.Message);
+                DbErrorHandler.Log(nameof(PersistTokenize), ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
             return dbResults;
         }

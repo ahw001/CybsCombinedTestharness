@@ -10,16 +10,12 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class PersistInvoiceResponse
     {
-        private static Dictionary<string, string> dbResults = new Dictionary<string, string>();
-
-        private static string InvoiceNumber = string.Empty;
-
         public static async Task<Dictionary<string, string>> InvoiceDBOps(JsonObject jsonObject)
         {
+            Dictionary<string, string> dbResults = new();
+
             try
             {
-                dbResults = new();
-
                 Console.WriteLine("Inserting invoice response data ...");
 
                 JsonDocument document = JsonDocument.Parse(jsonObject.ToString());
@@ -27,9 +23,9 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 if (document.RootElement.TryGetProperty("InvoiceInformation", out JsonElement InvoiceInformation))
                 {
 
-                    InvoiceNumber = InvoiceInformation.GetProperty("InvoiceNumber").GetString()!;
+                    string InvoiceNumber = InvoiceInformation.GetProperty("InvoiceNumber").GetString()!;
 
-                    
+
                     if (InvoiceNumber is not null)
                     {
                         Console.WriteLine("Updating InvoiceResponse table ...");
@@ -43,9 +39,10 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 
                         db.InvoiceResponses.Add(i);
 
-                        dbResults.Add("Invoice Response ID:", i.InvoiceResponseId.ToString());
-
                         int affected = await db.SaveChangesAsync();
+
+                        // Read the identity value only after the save — before it, it is always 0.
+                        dbResults.Add("Invoice Response ID:", i.InvoiceResponseId.ToString());
                         dbResults.Add("Affected: InvoiceResponse Added", affected.ToString());
 
                     }
@@ -53,10 +50,8 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("Exception in Token Persistance", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log(nameof(InvoiceDBOps), ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
             return dbResults;
         }

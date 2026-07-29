@@ -7,11 +7,12 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public class DBIndividualTransactionServices
     {
-        public static async Task<int> GetIndividualTransactionCountAsync()
-        {
-            using CybsDbContext db = new();
-            return await db.IndividualTransactions.CountAsync();
-        }
+        public static Task<DbResult<int>> GetIndividualTransactionCountAsync() =>
+            DbErrorHandler.GuardAsync(nameof(GetIndividualTransactionCountAsync), async () =>
+            {
+                using CybsDbContext db = new();
+                return await db.IndividualTransactions.CountAsync();
+            });
         public static async Task<List<IndividualTransactionDto>> GetIndividualTransactions()
         {
             try
@@ -24,10 +25,10 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error getting full list of Individual Transactions: {ex.ToString()}");
+                DbErrorHandler.Log(nameof(GetIndividualTransactions), ex);
                 var individualTransactions = new List<IndividualTransactionDto>();
                 IndividualTransactionDto paymentCardDto = new IndividualTransactionDto();
-                paymentCardDto.Error = ex.ToString();
+                paymentCardDto.Error = DbErrorHandler.BuildError(ex, nameof(GetIndividualTransactions));
                 individualTransactions.Add(paymentCardDto);
                 return individualTransactions;
             }
@@ -52,27 +53,19 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error Individual Transaction for ID: {ex.ToString()}");
+                DbErrorHandler.Log(nameof(GetIndividualTransactionByUsingId), ex);
                 var paymentCardDto = new IndividualTransactionDto();
-                paymentCardDto.Error = ex.ToString();
+                paymentCardDto.Error = DbErrorHandler.BuildError(ex, nameof(GetIndividualTransactionByUsingId));
                 return paymentCardDto;
             }
         }
-        public static async Task<int> CreateIndividualTransaction(IndividualTransactionDto paymentCardDto)
-        {
-            try
+        public static Task<DbResult<int>> CreateIndividualTransaction(IndividualTransactionDto paymentCardDto) =>
+            DbErrorHandler.GuardAsync(nameof(CreateIndividualTransaction), async () =>
             {
                 IndividualTransaction individualTransaction = IndividualTransactionMapper.Map(paymentCardDto)!;
                 using CybsDbContext db = new();
                 db.IndividualTransactions.Add(individualTransaction);
-                var affected = await db.SaveChangesAsync();
-                return affected;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error Creating Individual Transaction - {ex.ToString()}");
-                return 0;
-            }
-        }
+                return await db.SaveChangesAsync();
+            });
     }
 }

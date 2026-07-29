@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Http.HttpResults;
 using CybsClass.EntityModels;
 using CybsClass.WebApi.Service.Services.DBOperations;
 
@@ -12,39 +11,34 @@ public static class ElectronicProductEndpoints
 
         group.MapGet("/", async () =>
         {
-            return await DBElectronicProductServices.GetAllElectronicProducts();
+            return (await DBElectronicProductServices.GetAllElectronicProducts()).ToOkOrError();
         })
         .WithName("GetAllElectronicProducts");
 
-        group.MapGet("/{id}", async Task<Results<Ok<ElectronicProduct>, NotFound>> (int id) =>
+        group.MapGet("/{id}", async (int id) =>
         {
-            var product = await DBElectronicProductServices.GetElectronicProductById(id);
-            return product is not null ? TypedResults.Ok(product) : TypedResults.NotFound();
+            return (await DBElectronicProductServices.GetElectronicProductById(id))
+                .ToOkOrNotFound($"No ElectronicProduct found with id {id}.");
         })
         .WithName("GetElectronicProductById");
 
-        group.MapPut("/{id}", async Task<Results<Ok, NotFound>> (int id, ElectronicProduct electronicProduct) =>
+        group.MapPut("/{id}", async (int id, ElectronicProduct electronicProduct) =>
         {
-            var affected = await DBElectronicProductServices.UpdateElectronicProduct(id, electronicProduct);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBElectronicProductServices.UpdateElectronicProduct(id, electronicProduct))
+                .ToOkOrNotFound($"No ElectronicProduct found with id {id} to update.");
         })
         .WithName("UpdateElectronicProduct");
 
         group.MapPost("/", async (ElectronicProduct electronicProduct) =>
         {
-            var created = await DBElectronicProductServices.CreateElectronicProduct(electronicProduct);
-            if (created is null)
-            {
-                return Results.Problem("Failed to create electronic product.");
-            }
-            return Results.Created($"/api/ElectronicProduct/{created.ElectronicProductId}", created);
+            return (await DBElectronicProductServices.CreateElectronicProduct(electronicProduct)).ToOkOrError();
         })
         .WithName("CreateElectronicProduct");
 
-        group.MapDelete("/{id}", async Task<Results<Ok, NotFound>> (int id) =>
+        group.MapDelete("/{id}", async (int id) =>
         {
-            var affected = await DBElectronicProductServices.DeleteElectronicProduct(id);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBElectronicProductServices.DeleteElectronicProduct(id))
+                .ToOkOrNotFound($"No ElectronicProduct found with id {id} to delete.");
         })
         .WithName("DeleteElectronicProduct");
     }

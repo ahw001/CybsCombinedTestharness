@@ -44,7 +44,9 @@ public static class PersistTokenizeTransaction
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[PersistTokenizeTransaction] InsertAsync failed (non-fatal): {ex.Message}");
+            // Deliberately non-fatal: the token was already issued by CyberSource, so a failed
+            // local insert must not interrupt the caller's HTTP response.
+            DbErrorHandler.Log($"{nameof(InsertAsync)} (non-fatal)", ex);
             return null;
         }
     }

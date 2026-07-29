@@ -5,17 +5,19 @@ namespace CybsClass.WebApi.Service.Services.DBOperations;
 
 public static class DBPayByLinkServices
 {
-    public static async Task<List<PayByLinkTransaction>> GetAllPayByLinkTransactionsAsync()
-    {
-        using CybsDbContext db = new();
-        return await db.PayByLinkTransactions
-            .OrderByDescending(p => p.CreatedAt)
-            .ToListAsync();
-    }
+    public static Task<DbResult<List<PayByLinkTransaction>>> GetAllPayByLinkTransactionsAsync() =>
+        DbErrorHandler.GuardAsync(nameof(GetAllPayByLinkTransactionsAsync), async () =>
+        {
+            using CybsDbContext db = new();
+            return await db.PayByLinkTransactions
+                .OrderByDescending(p => p.CreatedAt)
+                .ToListAsync();
+        });
 
-    public static async Task<PayByLinkTransaction?> GetByIdAsync(int payByLinkTransactionId)
-    {
-        using CybsDbContext db = new();
-        return await db.PayByLinkTransactions.FindAsync(payByLinkTransactionId);
-    }
+    public static Task<DbResult<PayByLinkTransaction?>> GetByIdAsync(int payByLinkTransactionId) =>
+        DbErrorHandler.GuardAsync<PayByLinkTransaction?>(nameof(GetByIdAsync), async () =>
+        {
+            using CybsDbContext db = new();
+            return await db.PayByLinkTransactions.FindAsync(payByLinkTransactionId);
+        });
 }

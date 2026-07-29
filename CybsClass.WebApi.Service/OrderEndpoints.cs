@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http.HttpResults;
 using CybsClass.EntityModels;
 using CybsClass.WebApi.Service.Services.DBOperations;
@@ -14,7 +14,7 @@ public static class OrderEndpoints
 
         group.MapGet("/count", async () =>
         {
-            return Results.Ok(await DBOrdersServices.GetOrdersCountAsync());
+            return (await DBOrdersServices.GetOrdersCountAsync()).ToOkOrError();
         })
         .WithName("GetOrderCount");
 
@@ -26,21 +26,19 @@ public static class OrderEndpoints
             {
                 return Results.Ok(orderDto);
             }
-            else
-            {
-                return Results.NotFound();
-            }
+
+            return Results.Json(DbErrorHandler.BuildNotFound("No Orders found."));
         })
         .WithName("GetAllOrders");
 
-        group.MapGet("/{id}", async Task<Results<Ok<OrderDto>, NotFound>> ([FromRoute] int id) =>
+        group.MapGet("/{id}", async ([FromRoute] int id) =>
         {
             var orderDto = await DBOrdersServices.GetOrdersByUsingId(id);
             if (orderDto == null)
             {
-                return TypedResults.NotFound();
+                return Results.Json(DbErrorHandler.BuildNotFound($"No Order found with id {id}."));
             }
-            return TypedResults.Ok(orderDto);
+            return Results.Ok(orderDto);
         })
         .WithName("GetOrderById");
 

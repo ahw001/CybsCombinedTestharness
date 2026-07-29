@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http.HttpResults;
+﻿using Microsoft.AspNetCore.Http.HttpResults;
 using CybsClass.EntityModels;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.WebApi.Service.Services.DBOperations;
@@ -13,7 +13,7 @@ public static class FollowOnTransactionsEndpoints
 
         group.MapGet("/count", async () =>
         {
-            return Results.Ok(await DBFollowOnTransResponseServices.GetFollowOnTransResponseCountAsync());
+            return (await DBFollowOnTransResponseServices.GetFollowOnTransResponseCountAsync()).ToOkOrError();
         })
         .WithName("GetFollowOnTransCount");
 
@@ -25,21 +25,19 @@ public static class FollowOnTransactionsEndpoints
             {
                 return Results.Ok(followOnTransResponseDto);
             }
-            else
-            {
-                return Results.NotFound();
-            }
+
+            return Results.Json(DbErrorHandler.BuildNotFound("No Follow On Transactions found."));
         })
         .WithName("GetAllFollowOnTransactions");
 
-        group.MapGet("/{id}", async Task<Results<Ok<FollowOnTransResponseDto>, NotFound>> ([FromRoute] int id) =>
+        group.MapGet("/{id}", async ([FromRoute] int id) =>
         {
             var followOnTransResponseDto = await DBFollowOnTransResponseServices.GetFollowOnTransResponseByUsingId(id);
             if (followOnTransResponseDto == null)
             {
-                return TypedResults.NotFound();
+                return Results.Json(DbErrorHandler.BuildNotFound($"No Follow On Transaction found with id {id}."));
             }
-            return TypedResults.Ok(followOnTransResponseDto);
+            return Results.Ok(followOnTransResponseDto);
         })
         .WithName("GetFollowOnTransResponseById");
 

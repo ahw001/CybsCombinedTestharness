@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.EntityModels;
 
@@ -23,7 +23,7 @@ public static class DBBoardingPortfolioServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingPortfolio] Create error: {ex}");
+            DbErrorHandler.Log(nameof(CreateAsync), ex);
             return null;
         }
     }
@@ -41,7 +41,7 @@ public static class DBBoardingPortfolioServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingPortfolio] GetAll error: {ex}");
+            DbErrorHandler.Log(nameof(GetAllAsync), ex);
             return new List<BoardingPortfolio>();
         }
     }
@@ -58,7 +58,7 @@ public static class DBBoardingPortfolioServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingPortfolio] GetById error: {ex}");
+            DbErrorHandler.Log(nameof(GetByIdAsync), ex);
             return null;
         }
     }
@@ -83,7 +83,7 @@ public static class DBBoardingPortfolioServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingPortfolio] Update error: {ex}");
+            DbErrorHandler.Log(nameof(UpdateAsync), ex);
             return null;
         }
     }
@@ -100,7 +100,7 @@ public static class DBBoardingPortfolioServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n\n[DBBoardingPortfolio] Delete error: {ex}");
+            DbErrorHandler.Log(nameof(DeleteAsync), ex);
             return false;
         }
     }

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http.HttpResults;
 using CybsClass.EntityModels;
 using CybsClass.WebApi.Service.Services.DBOperations;
@@ -15,7 +15,7 @@ public static class NetworkTokenInfoEndpoints
 
         group.MapGet("/count", async () =>
         {
-            return Results.Ok(await DBNetworkTokenServices.GetNetworkTokenInfosCountAsync());
+            return (await DBNetworkTokenServices.GetNetworkTokenInfosCountAsync()).ToOkOrError();
         })
         .WithName("GetNetowrkTokenCount");
 
@@ -27,21 +27,19 @@ public static class NetworkTokenInfoEndpoints
             {
                 return Results.Ok(networkTokenInfoDto);
             }
-            else
-            {
-                return Results.NotFound();
-            }
+
+            return Results.Json(DbErrorHandler.BuildNotFound("No Network Tokens found."));
         })
         .WithName("GetAllNetworkTokenInfos");
 
-        group.MapGet("/{id}", async Task<Results<Ok<List<NetworkTokenInfoDto>>, NotFound>> ([FromRoute] int id) =>
+        group.MapGet("/{id}", async ([FromRoute] int id) =>
         {
             var networkTokenInfoDtos = await DBNetworkTokenServices.GetNetworkTokenByUsingId(id);
-            if (networkTokenInfoDtos == null)
+            if (networkTokenInfoDtos == null || networkTokenInfoDtos.Count == 0)
             {
-                return TypedResults.NotFound();
+                return Results.Json(DbErrorHandler.BuildNotFound($"No Network Tokens found for payment card {id}."));
             }
-            return TypedResults.Ok(networkTokenInfoDtos)!;
+            return Results.Ok(networkTokenInfoDtos);
         })
         .WithName("GetNetworkTokenInfoById");
     }

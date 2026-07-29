@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.EntityModels;
 using CybsClass.Cybersource.Models.DTOs;
 
@@ -28,7 +28,7 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DBPaymentCardSampleDataServices] Error fetching NT cards: {ex.Message}");
+                DbErrorHandler.Log(nameof(GetNtCardsAsync), ex);
                 return new List<PaymentCardSampleDatumDto>
                 {
                     new() { Error = new() { Message = ex.Message } }

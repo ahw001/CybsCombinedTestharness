@@ -7,11 +7,12 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public class DBOrderDetailServices
     {
-        public static async Task<int> GetPaymentCardCountAsync()
-        {
-            using CybsDbContext db = new();
-            return await db.OrderDetails.CountAsync();
-        }
+        public static Task<DbResult<int>> GetPaymentCardCountAsync() =>
+            DbErrorHandler.GuardAsync(nameof(GetPaymentCardCountAsync), async () =>
+            {
+                using CybsDbContext db = new();
+                return await db.OrderDetails.CountAsync();
+            });
         public static async Task<List<OrderDetailDto>> GetOrderDetails()
         {
             try
@@ -24,10 +25,10 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error getting full list of Order Details: {ex.ToString()}");
+                DbErrorHandler.Log(nameof(GetOrderDetails), ex);
                 var orderDetails = new List<OrderDetailDto>();
                 OrderDetailDto orderDetailDto = new OrderDetailDto();
-                orderDetailDto.Error = ex.ToString();
+                orderDetailDto.Error = DbErrorHandler.BuildError(ex, nameof(GetOrderDetails));
                 orderDetails.Add(orderDetailDto);
                 return orderDetails;
             }
@@ -52,28 +53,19 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error Order Detail for ID: {ex.ToString()}");
+                DbErrorHandler.Log(nameof(GetOrderDetailByUsingId), ex);
                 var orderDetailDto = new OrderDetailDto();
-                orderDetailDto.Error = ex.ToString();
+                orderDetailDto.Error = DbErrorHandler.BuildError(ex, nameof(GetOrderDetailByUsingId));
                 return orderDetailDto;
             }
         }
-        public static async Task<int> CreateOrderDetail(OrderDetailDto orderDetailDto)
-        {
-            try
+        public static Task<DbResult<int>> CreateOrderDetail(OrderDetailDto orderDetailDto) =>
+            DbErrorHandler.GuardAsync(nameof(CreateOrderDetail), async () =>
             {
                 OrderDetail orderDetail = OrderDetailMapper.Map(orderDetailDto)!;
                 using CybsDbContext db = new();
                 db.OrderDetails.Add(orderDetail);
-                var affected = await db.SaveChangesAsync();
-                return affected;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error Creating Order Detail - {ex.ToString()}");
-                return 0;
-            }
-
-        }
+                return await db.SaveChangesAsync();
+            });
     }
 }

@@ -7,11 +7,12 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public class DBOrdersServices
     {
-        public static async Task<int> GetOrdersCountAsync()
-        {
-            using CybsDbContext db = new();
-            return await db.Orders.CountAsync();
-        }
+        public static Task<DbResult<int>> GetOrdersCountAsync() =>
+            DbErrorHandler.GuardAsync(nameof(GetOrdersCountAsync), async () =>
+            {
+                using CybsDbContext db = new();
+                return await db.Orders.CountAsync();
+            });
         public static async Task<List<OrderDto>> GetOrders()
         {
             try
@@ -24,10 +25,10 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error getting full list of Orders: {ex.ToString()}");
+                DbErrorHandler.Log(nameof(GetOrders), ex);
                 var order = new List<OrderDto>();
                 OrderDto orderDto = new OrderDto();
-                orderDto.Error = ex.ToString();
+                orderDto.Error = DbErrorHandler.BuildError(ex, nameof(GetOrders));
                 order.Add(orderDto);
                 return order;
             }
@@ -52,27 +53,19 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error Order for ID: {ex.ToString()}");
+                DbErrorHandler.Log(nameof(GetOrdersByUsingId), ex);
                 var orderDto = new OrderDto();
-                orderDto.Error = ex.ToString();
+                orderDto.Error = DbErrorHandler.BuildError(ex, nameof(GetOrdersByUsingId));
                 return orderDto;
             }
         }
-        public static async Task<int> CreateOrders(OrderDto orderDto)
-        {
-            try
+        public static Task<DbResult<int>> CreateOrders(OrderDto orderDto) =>
+            DbErrorHandler.GuardAsync(nameof(CreateOrders), async () =>
             {
                 Order order = OrderMapper.Map(orderDto)!;
                 using CybsDbContext db = new();
                 db.Orders.Add(order);
-                var affected = await db.SaveChangesAsync();
-                return affected;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error Creating Payment Card - {ex.ToString()}");
-                return 0;
-            }
-        }
+                return await db.SaveChangesAsync();
+            });
     }
 }

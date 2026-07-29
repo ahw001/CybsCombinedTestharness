@@ -14,10 +14,9 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class PersistFollowOnTransaction
     {
-        private static Dictionary<string, object> dbResults = new Dictionary<string, object>();
         public static async Task<Dictionary<string, object>> InsertFollowOnTransaction(JsonNode jsonNode, FollowOnTransJson followOnTransJson, FollowOnTransDto followOnTransDto)
         {
-            dbResults = new();
+            Dictionary<string, object> dbResults = new();
 
             try
             { 
@@ -57,10 +56,8 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("Exception", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log(nameof(InsertFollowOnTransaction), ex);
+                return new Dictionary<string, object> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
         }
     }

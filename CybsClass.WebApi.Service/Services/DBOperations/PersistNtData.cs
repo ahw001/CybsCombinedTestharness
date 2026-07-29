@@ -12,10 +12,9 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class PersistNtData
     {
-        private static Dictionary<string, object> dbResults = new();
         public static async Task<Dictionary<string, object>> InsertNt(JsonNode decryptedNt)
         {
-            dbResults = new();
+            Dictionary<string, object> dbResults = new();
 
             Console.WriteLine("Inserting network token data ...");
 
@@ -65,10 +64,8 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("Exception", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log(nameof(InsertNt), ex);
+                return new Dictionary<string, object> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
         }
     }

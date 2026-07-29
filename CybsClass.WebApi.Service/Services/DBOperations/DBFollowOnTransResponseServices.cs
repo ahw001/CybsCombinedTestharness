@@ -8,11 +8,12 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public class DBFollowOnTransResponseServices
     {
-        public static async Task<int> GetFollowOnTransResponseCountAsync()
-        {
-            using CybsDbContext db = new();
-            return await db.FollowOnTransResponses.CountAsync();
-        }
+        public static Task<DbResult<int>> GetFollowOnTransResponseCountAsync() =>
+            DbErrorHandler.GuardAsync(nameof(GetFollowOnTransResponseCountAsync), async () =>
+            {
+                using CybsDbContext db = new();
+                return await db.FollowOnTransResponses.CountAsync();
+            });
         public static async Task<List<FollowOnTransResponseDto>> GetFollowOnTransResponses()
         {
             try
@@ -25,10 +26,10 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error getting full list of Follow On Transactions: {ex.ToString()}");
+                DbErrorHandler.Log(nameof(GetFollowOnTransResponses), ex);
                 var followOnTransResponses = new List<FollowOnTransResponseDto>();
                 FollowOnTransResponseDto followOnTransResponseDto = new FollowOnTransResponseDto();
-                followOnTransResponseDto.Error = ex.ToString();
+                followOnTransResponseDto.Error = DbErrorHandler.BuildError(ex, nameof(GetFollowOnTransResponses));
                 followOnTransResponses.Add(followOnTransResponseDto);
                 return followOnTransResponses;
             }
@@ -53,30 +54,21 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error Follow On Transactions for ID: {ex.ToString()}");
+                DbErrorHandler.Log(nameof(GetFollowOnTransResponseByUsingId), ex);
                 var followOnTransResponseDto = new FollowOnTransResponseDto
                 {
-                    Error = ex.ToString()
+                    Error = DbErrorHandler.BuildError(ex, nameof(GetFollowOnTransResponseByUsingId))
                 };
                 return followOnTransResponseDto;
             }
         }
-        public static async Task<int> CreateFollowOnTransResponse(FollowOnTransResponseDto followOnTransResponseDto)
-        {
-            try
+        public static Task<DbResult<int>> CreateFollowOnTransResponse(FollowOnTransResponseDto followOnTransResponseDto) =>
+            DbErrorHandler.GuardAsync(nameof(CreateFollowOnTransResponse), async () =>
             {
                 FollowOnTransResponse followOnTransResponse = FollowOnTransResponseMapper.Map(followOnTransResponseDto)!;
                 using CybsDbContext db = new();
                 db.FollowOnTransResponses.Add(followOnTransResponse);
-                var affected = await db.SaveChangesAsync();
-                return affected;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error Creating Follow On Transaction - {ex.ToString()}");
-                return 0;
-            }
-
-        }
+                return await db.SaveChangesAsync();
+            });
     }
 }

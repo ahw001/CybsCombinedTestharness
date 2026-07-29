@@ -1,4 +1,6 @@
-﻿namespace CybsClass.Cybersource.Models.DTOs;
+﻿using CybsClass.Cybersource.Models.BaseData;
+using System.Text.Json.Serialization;
+namespace CybsClass.Cybersource.Models.DTOs;
 
 public partial class AuthTransResponseDto
 {
@@ -62,6 +64,7 @@ public partial class AuthTransResponseDto
 
     public string? ResponseTransactionJson { get; set; }
 
-    public string? Error { get; set; }
+    [JsonPropertyName("error")]
+    public ErrorObject? Error { get; set; }
 
 }

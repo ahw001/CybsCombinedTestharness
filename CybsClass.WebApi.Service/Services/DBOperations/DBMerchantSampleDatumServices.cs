@@ -1,13 +1,12 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.EntityModels;
 
 namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public class DBMerchantSampleDatumServices
     {
-        public static async Task<MerchantSampleDatum?> GetRandomMerchantSampleDatum()
-        {
-            try
+        public static Task<DbResult<MerchantSampleDatum?>> GetRandomMerchantSampleDatum() =>
+            DbErrorHandler.GuardAsync<MerchantSampleDatum?>(nameof(GetRandomMerchantSampleDatum), async () =>
             {
                 Console.WriteLine("[DBMerchantSampleDatumServices] Fetching random merchant sample datum.");
                 using CybsDbContext db = new();
@@ -15,40 +14,25 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 if (count == 0) return null;
                 int skip = new Random().Next(count);
                 return await db.MerchantSampleData.Skip(skip).FirstOrDefaultAsync();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DBMerchantSampleDatumServices] Error fetching random merchant sample datum: {ex}");
-                return null;
-            }
-        }
+            });
 
-        public static async Task<MerchantSampleDatum?> GetMerchantSampleDatumById(int id)
-        {
-            try
+        public static Task<DbResult<MerchantSampleDatum?>> GetMerchantSampleDatumById(int id) =>
+            DbErrorHandler.GuardAsync<MerchantSampleDatum?>(nameof(GetMerchantSampleDatumById), async () =>
             {
                 Console.WriteLine($"[DBMerchantSampleDatumServices] Fetching merchant sample datum with ID {id}.");
                 using CybsDbContext db = new();
                 return await db.MerchantSampleData.AsNoTracking()
                     .FirstOrDefaultAsync(model => model.SampleMerchantId == id);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DBMerchantSampleDatumServices] Error fetching merchant sample datum with ID {id}: {ex}");
-                return null;
-            }
-        }
+            });
 
-        public static async Task<int> UpdateMerchantSampleDatum(int id, MerchantSampleDatum merchantSampleDatum)
-        {
-            try
+        public static Task<DbResult<int>> UpdateMerchantSampleDatum(int id, MerchantSampleDatum merchantSampleDatum) =>
+            DbErrorHandler.GuardAsync(nameof(UpdateMerchantSampleDatum), async () =>
             {
                 Console.WriteLine($"[DBMerchantSampleDatumServices] Updating merchant sample datum with ID {id}.");
                 using CybsDbContext db = new();
                 return await db.MerchantSampleData
                     .Where(model => model.SampleMerchantId == id)
                     .ExecuteUpdateAsync(setters => setters
-                        .SetProperty(m => m.SampleMerchantId, merchantSampleDatum.SampleMerchantId)
                         .SetProperty(m => m.OrganizationId, merchantSampleDatum.OrganizationId)
                         .SetProperty(m => m.Status, merchantSampleDatum.Status)
                         .SetProperty(m => m.Type, merchantSampleDatum.Type)
@@ -75,17 +59,10 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                         .SetProperty(m => m.BusinessInformationPhoneNumber, merchantSampleDatum.BusinessInformationPhoneNumber)
                         .SetProperty(m => m.BusinessInformationTimeZone, merchantSampleDatum.BusinessInformationTimeZone)
                         .SetProperty(m => m.MerchantCategoryCode, merchantSampleDatum.MerchantCategoryCode));
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DBMerchantSampleDatumServices] Error updating merchant sample datum with ID {id}: {ex}");
-                return 0;
-            }
-        }
+            });
 
-        public static async Task<MerchantSampleDatum?> CreateMerchantSampleDatum(MerchantSampleDatum merchantSampleDatum)
-        {
-            try
+        public static Task<DbResult<MerchantSampleDatum?>> CreateMerchantSampleDatum(MerchantSampleDatum merchantSampleDatum) =>
+            DbErrorHandler.GuardAsync<MerchantSampleDatum?>(nameof(CreateMerchantSampleDatum), async () =>
             {
                 Console.WriteLine("[DBMerchantSampleDatumServices] Inserting new merchant sample datum.");
                 using CybsDbContext db = new();
@@ -93,29 +70,16 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 await db.SaveChangesAsync();
                 Console.WriteLine($"[DBMerchantSampleDatumServices] Merchant sample datum created with ID {merchantSampleDatum.SampleMerchantId}.");
                 return merchantSampleDatum;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DBMerchantSampleDatumServices] Error creating merchant sample datum: {ex}");
-                return null;
-            }
-        }
+            });
 
-        public static async Task<int> DeleteMerchantSampleDatum(int id)
-        {
-            try
+        public static Task<DbResult<int>> DeleteMerchantSampleDatum(int id) =>
+            DbErrorHandler.GuardAsync(nameof(DeleteMerchantSampleDatum), async () =>
             {
                 Console.WriteLine($"[DBMerchantSampleDatumServices] Deleting merchant sample datum with ID {id}.");
                 using CybsDbContext db = new();
                 return await db.MerchantSampleData
                     .Where(model => model.SampleMerchantId == id)
                     .ExecuteDeleteAsync();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DBMerchantSampleDatumServices] Error deleting merchant sample datum with ID {id}: {ex}");
-                return 0;
-            }
-        }
+            });
     }
 }

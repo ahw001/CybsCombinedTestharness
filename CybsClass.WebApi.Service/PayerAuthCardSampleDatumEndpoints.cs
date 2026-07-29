@@ -1,5 +1,4 @@
-using Microsoft.AspNetCore.Http.HttpResults;
-using CybsClass.EntityModels;
+﻿using CybsClass.EntityModels;
 using CybsClass.WebApi.Service.Services.DBOperations;
 
 namespace CybsClass.WebApi.Service;
@@ -12,39 +11,34 @@ public static class PayerAuthCardSampleDatumEndpoints
 
         group.MapGet("/", async () =>
         {
-            return await DBPayerAuthCardSampleDatumServices.GetAllPayerAuthCardSampleData();
+            return (await DBPayerAuthCardSampleDatumServices.GetAllPayerAuthCardSampleData()).ToOkOrError();
         })
         .WithName("GetAllPayerAuthCardSampleData");
 
-        group.MapGet("/{id}", async Task<Results<Ok<PayerAuthCardSampleDatum>, NotFound>> (int samplepayauthpaymentcardid) =>
+        group.MapGet("/{samplepayauthpaymentcardid}", async (int samplepayauthpaymentcardid) =>
         {
-            var datum = await DBPayerAuthCardSampleDatumServices.GetPayerAuthCardSampleDatumById(samplepayauthpaymentcardid);
-            return datum is not null ? TypedResults.Ok(datum) : TypedResults.NotFound();
+            return (await DBPayerAuthCardSampleDatumServices.GetPayerAuthCardSampleDatumById(samplepayauthpaymentcardid))
+                .ToOkOrNotFound($"No payer auth card sample datum found with id {samplepayauthpaymentcardid}.");
         })
         .WithName("GetPayerAuthCardSampleDatumById");
 
-        group.MapPut("/{id}", async Task<Results<Ok, NotFound>> (int samplepayauthpaymentcardid, PayerAuthCardSampleDatum payerAuthCardSampleDatum) =>
+        group.MapPut("/{samplepayauthpaymentcardid}", async (int samplepayauthpaymentcardid, PayerAuthCardSampleDatum payerAuthCardSampleDatum) =>
         {
-            var affected = await DBPayerAuthCardSampleDatumServices.UpdatePayerAuthCardSampleDatum(samplepayauthpaymentcardid, payerAuthCardSampleDatum);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBPayerAuthCardSampleDatumServices.UpdatePayerAuthCardSampleDatum(samplepayauthpaymentcardid, payerAuthCardSampleDatum))
+                .ToOkOrNotFound($"No payer auth card sample datum found with id {samplepayauthpaymentcardid} to update.");
         })
         .WithName("UpdatePayerAuthCardSampleDatum");
 
         group.MapPost("/", async (PayerAuthCardSampleDatum payerAuthCardSampleDatum) =>
         {
-            var created = await DBPayerAuthCardSampleDatumServices.CreatePayerAuthCardSampleDatum(payerAuthCardSampleDatum);
-            if (created is null)
-            {
-                return Results.Problem("Failed to create payer auth card sample datum.");
-            }
-            return Results.Created($"/api/PayerAuthCardSampleDatum/{created.SamplePayAuthPaymentCardId}", created);
+            return (await DBPayerAuthCardSampleDatumServices.CreatePayerAuthCardSampleDatum(payerAuthCardSampleDatum)).ToOkOrError();
         })
         .WithName("CreatePayerAuthCardSampleDatum");
 
-        group.MapDelete("/{id}", async Task<Results<Ok, NotFound>> (int samplepayauthpaymentcardid) =>
+        group.MapDelete("/{samplepayauthpaymentcardid}", async (int samplepayauthpaymentcardid) =>
         {
-            var affected = await DBPayerAuthCardSampleDatumServices.DeletePayerAuthCardSampleDatum(samplepayauthpaymentcardid);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBPayerAuthCardSampleDatumServices.DeletePayerAuthCardSampleDatum(samplepayauthpaymentcardid))
+                .ToOkOrNotFound($"No payer auth card sample datum found with id {samplepayauthpaymentcardid} to delete.");
         })
         .WithName("DeletePayerAuthCardSampleDatum");
     }

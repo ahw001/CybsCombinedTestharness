@@ -1,5 +1,4 @@
-using Microsoft.AspNetCore.Http.HttpResults;
-using CybsClass.EntityModels;
+﻿using CybsClass.EntityModels;
 using CybsClass.WebApi.Service.Services.DBOperations;
 
 namespace CybsClass.WebApi.Service;
@@ -12,39 +11,34 @@ public static class SampleInvoiceDetailEndpoints
 
         group.MapGet("/", async () =>
         {
-            return await DBSampleInvoiceDetailServices.GetAllSampleInvoiceDetails();
+            return (await DBSampleInvoiceDetailServices.GetAllSampleInvoiceDetails()).ToOkOrError();
         })
         .WithName("GetAllSampleInvoiceDetails");
 
-        group.MapGet("/{id}", async Task<Results<Ok<SampleInvoiceDetail>, NotFound>> (int sampleinvoiceid) =>
+        group.MapGet("/{sampleinvoiceid}", async (int sampleinvoiceid) =>
         {
-            var detail = await DBSampleInvoiceDetailServices.GetSampleInvoiceDetailById(sampleinvoiceid);
-            return detail is not null ? TypedResults.Ok(detail) : TypedResults.NotFound();
+            return (await DBSampleInvoiceDetailServices.GetSampleInvoiceDetailById(sampleinvoiceid))
+                .ToOkOrNotFound($"No sample invoice detail found with id {sampleinvoiceid}.");
         })
         .WithName("GetSampleInvoiceDetailById");
 
-        group.MapPut("/{id}", async Task<Results<Ok, NotFound>> (int sampleinvoiceid, SampleInvoiceDetail sampleInvoiceDetail) =>
+        group.MapPut("/{sampleinvoiceid}", async (int sampleinvoiceid, SampleInvoiceDetail sampleInvoiceDetail) =>
         {
-            var affected = await DBSampleInvoiceDetailServices.UpdateSampleInvoiceDetail(sampleinvoiceid, sampleInvoiceDetail);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBSampleInvoiceDetailServices.UpdateSampleInvoiceDetail(sampleinvoiceid, sampleInvoiceDetail))
+                .ToOkOrNotFound($"No sample invoice detail found with id {sampleinvoiceid} to update.");
         })
         .WithName("UpdateSampleInvoiceDetail");
 
         group.MapPost("/", async (SampleInvoiceDetail sampleInvoiceDetail) =>
         {
-            var created = await DBSampleInvoiceDetailServices.CreateSampleInvoiceDetail(sampleInvoiceDetail);
-            if (created is null)
-            {
-                return Results.Problem("Failed to create sample invoice detail.");
-            }
-            return Results.Created($"/api/SampleInvoiceDetail/{created.SampleInvoiceId}", created);
+            return (await DBSampleInvoiceDetailServices.CreateSampleInvoiceDetail(sampleInvoiceDetail)).ToOkOrError();
         })
         .WithName("CreateSampleInvoiceDetail");
 
-        group.MapDelete("/{id}", async Task<Results<Ok, NotFound>> (int sampleinvoiceid) =>
+        group.MapDelete("/{sampleinvoiceid}", async (int sampleinvoiceid) =>
         {
-            var affected = await DBSampleInvoiceDetailServices.DeleteSampleInvoiceDetail(sampleinvoiceid);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBSampleInvoiceDetailServices.DeleteSampleInvoiceDetail(sampleinvoiceid))
+                .ToOkOrNotFound($"No sample invoice detail found with id {sampleinvoiceid} to delete.");
         })
         .WithName("DeleteSampleInvoiceDetail");
     }

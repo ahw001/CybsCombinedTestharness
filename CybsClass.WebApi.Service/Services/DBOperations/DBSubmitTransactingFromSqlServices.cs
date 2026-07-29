@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.EntityModels;
 using CybsClass.Cybersource.Models.DTOs;
 
@@ -21,7 +21,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] GetDetails error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetTransactingMerchantWithDetailsAsync), ex);
             return null;
         }
     }
@@ -43,7 +43,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] GetCardSub error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetCardSubscriptionForMerchantAsync), ex);
             return null;
         }
     }
@@ -68,7 +68,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] GetIncludedCardSub error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetIncludedCardSubscriptionForMerchantAsync), ex);
             return null;
         }
     }
@@ -88,7 +88,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] GetIncludedSupplementalTypes error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetIncludedSupplementalProductTypesAsync), ex);
             return new List<string>();
         }
     }
@@ -105,7 +105,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] UpdateCardSubStatus error: {ex.Message}");
+            DbErrorHandler.Log(nameof(UpdateCardSubscriptionBoardingStatusAsync), ex);
             return false;
         }
     }
@@ -122,7 +122,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] UpdateProductJunctions error: {ex.Message}");
+            DbErrorHandler.Log(nameof(UpdateProductJunctionsBoardingStatusAsync), ex);
             return false;
         }
     }
@@ -140,7 +140,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] GetSupplementalTypes error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetSupplementalProductTypesAsync), ex);
             return new List<string>();
         }
     }
@@ -162,7 +162,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] GetVasSub error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetVasSubscriptionForMerchantAsync), ex);
             return null;
         }
     }
@@ -186,7 +186,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] GetIncludedVasSub error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetIncludedVasSubscriptionForMerchantAsync), ex);
             return null;
         }
     }
@@ -208,7 +208,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] GetNtTmsSub error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetNtTmsSubscriptionForMerchantAsync), ex);
             return null;
         }
     }
@@ -228,7 +228,7 @@ public static class DBSubmitTransactingFromSqlServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBSubmitTransactingFromSql] UpdateStatus error: {ex.Message}");
+            DbErrorHandler.Log(nameof(UpdateCybersourceBoardingStatusAsync), ex);
             return false;
         }
     }

@@ -1,4 +1,6 @@
-﻿namespace CybsClass.Cybersource.Models.DTOs;
+﻿using CybsClass.Cybersource.Models.BaseData;
+using System.Text.Json.Serialization;
+namespace CybsClass.Cybersource.Models.DTOs;
 
 
 public partial class OrderDetailDto
@@ -14,6 +16,7 @@ public partial class OrderDetailDto
 
     public float Discount { get; set; }
 
-    public string? Error { get; set; }
+    [JsonPropertyName("error")]
+    public ErrorObject? Error { get; set; }
 
 }

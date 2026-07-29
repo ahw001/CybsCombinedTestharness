@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.EntityModels;
 using CybsClass.Cybersource.Models.DTOs;
 
@@ -29,7 +29,7 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DBNetworkTokenTestCardServices] Error fetching network token test cards: {ex.Message}");
+                DbErrorHandler.Log(nameof(GetAllAsync), ex);
                 return new List<NetworkTokenTestCardDto>
                 {
                     new() { Error = new() { Message = ex.Message } }

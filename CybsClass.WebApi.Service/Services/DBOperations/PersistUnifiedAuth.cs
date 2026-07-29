@@ -12,21 +12,26 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class PersistUnifiedAuth
     {
-        private static Dictionary<string, string> dbResults = new Dictionary<string, string>();
-
-        private static FollowOnTransJson followOnTransJson = new();
-
         public static async Task<Dictionary<string, string>> UnifiedAuthDBOps(CtxPaymentDto ctxPaymentDto, JsonObject jsonObject)
         {
+            Dictionary<string, string> dbResults = new();
+
             try
             {
-                dbResults = new();
-
                 Console.WriteLine("Inserting unified auth payment card data ...");
 
-                followOnTransJson = JsonSerializer.Deserialize<FollowOnTransJson>(jsonObject)!;
+                FollowOnTransJson followOnTransJson = JsonSerializer.Deserialize<FollowOnTransJson>(jsonObject)!;
 
                 using CybsDbContext db = new();
+
+                // Payment card and auth response are one unit of work. The context enables
+                // retry-on-failure, whose execution strategy refuses a user-initiated
+                // transaction unless the whole unit runs through the strategy.
+                var strategy = db.Database.CreateExecutionStrategy();
+                await strategy.ExecuteAsync(async () =>
+                {
+                dbResults.Clear();
+                await using var tx = await db.Database.BeginTransactionAsync();
 
                 var paymentCardInfo = new PaymentCardInfo();
 
@@ -75,18 +80,18 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 authDb.TokenInformationInstIdNew = Convert.ToString(followOnTransJson.TokenInformation?.InstrumentIdentifierNew) ?? "0";
 
                 EntityEntry<AuthTransResponse> authEntity = db.AuthTransResponses.Add(authDb);
-                Console.WriteLine($"Auth Trans State: {entity.State}, ID: {authDb.AuthTransResponsesId}");
+                Console.WriteLine($"Auth Trans State: {authEntity.State}, ID: {authDb.AuthTransResponsesId}");
 
-                int affected3 = db.SaveChanges();
-                Console.WriteLine($"Auth Trans State: {entity.State}, ID: {authDb.AuthTransResponsesId}");
+                await db.SaveChangesAsync();
+                Console.WriteLine($"Auth Trans State: {authEntity.State}, ID: {authDb.AuthTransResponsesId}");
 
+                await tx.CommitAsync();
+                });
             }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("Exception in Token Persistance", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log(nameof(UnifiedAuthDBOps), ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
             return dbResults;
         }

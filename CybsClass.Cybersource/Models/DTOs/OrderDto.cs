@@ -1,4 +1,6 @@
-﻿namespace CybsClass.Cybersource.Models.DTOs;
+﻿using CybsClass.Cybersource.Models.BaseData;
+using System.Text.Json.Serialization;
+namespace CybsClass.Cybersource.Models.DTOs;
 
 public partial class OrderDto
 {
@@ -28,6 +30,7 @@ public partial class OrderDto
 
     public string? ShipCountry { get; set; }
 
-    public string? Error { get; set;}
+    [JsonPropertyName("error")]
+    public ErrorObject? Error { get; set; }
 
 }

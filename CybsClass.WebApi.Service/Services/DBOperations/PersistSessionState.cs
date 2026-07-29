@@ -7,13 +7,12 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class PersistSessionState
     {
-        private static Dictionary<string, string> dbResults = new Dictionary<string, string>();
-
         public static async Task<Dictionary<string, string>> SessionStateDBOps(B2cCustomerDto b2cCustomerDto)
         {
-            try 
+            Dictionary<string, string> dbResults = new();
+
+            try
             {
-                dbResults = new();
                 var guid = Guid.NewGuid();
                 var json = JsonSerializer.Serialize(b2cCustomerDto);
 
@@ -31,19 +30,16 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 Console.WriteLine($"Session State: {entity.State}, Guid: {sessionStateStore.Id}");
 
                 int affected0 = await db.SaveChangesAsync();
-                if (affected0 > 0) 
+                if (affected0 > 0)
                 {
-                    dbResults = new();
                     dbResults.Add("GUID", sessionStateStore.Id.ToString());
                     return dbResults;
                 }
-            } 
+            }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("error", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log(nameof(SessionStateDBOps), ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
             return dbResults;
         }
@@ -64,7 +60,7 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error retrieving session state: {ex.Message}");
+                DbErrorHandler.Log(nameof(GetSessionStateByIdAsync), ex);
                 return null;
             }
         }

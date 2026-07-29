@@ -34,5 +34,8 @@ namespace CybsClass.Cybersource.Models.DTOs
         [JsonPropertyName("processingInformation")]
         public ProcessingInformation? ProcessingInformation { get; set; } = new();
 
+        [JsonPropertyName("error")]
+        public ErrorObject? Error { get; set; }
+
     }
 }

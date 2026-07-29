@@ -41,8 +41,15 @@
 
 window.storeCheckoutUC = window.storeCheckoutUC || {};
 
-window.storeCheckoutUC.loadScriptAndMount = function (dotNetRef, jwt, clientLibraryUrl, containerId) {
-    console.log("[StoreCheckoutUC] clientLibraryUrl:", clientLibraryUrl);
+// manualToken=true asks the v1 SDK for createCheckout({ autoProcessing: false }) — the UC
+// guide's "Flow 3 / No Service Orchestration" mode: mount() then resolves with the raw
+// transientTokenJwt and NOTHING is processed; every follow-on service is the merchant's own
+// REST call. Live-verified 2026-07-28: this client-side option overrides the merchant-level
+// Business Center completeMandate default (which otherwise forces autoProcessing on this
+// account) — despite our 2026-07-21 note that createCheckout() ignores its arguments (that
+// probe passed a selector, not an options object).
+window.storeCheckoutUC.loadScriptAndMount = function (dotNetRef, jwt, clientLibraryUrl, containerId, manualToken) {
+    console.log("[StoreCheckoutUC] clientLibraryUrl:", clientLibraryUrl, "manualToken:", !!manualToken);
 
     if (!clientLibraryUrl) {
         console.error("[StoreCheckoutUC] No clientLibrary URL found in the capture context JWT.");
@@ -60,7 +67,7 @@ window.storeCheckoutUC.loadScriptAndMount = function (dotNetRef, jwt, clientLibr
     script.setAttribute('data-uc-client-library', 'true');
     script.onload = function () {
         console.log("[StoreCheckoutUC] client library script loaded.");
-        window.storeCheckoutUC.mount(dotNetRef, jwt, containerId);
+        window.storeCheckoutUC.mount(dotNetRef, jwt, containerId, manualToken);
     };
     script.onerror = function () {
         console.error("[StoreCheckoutUC] Failed to load client library script:", clientLibraryUrl);
@@ -69,7 +76,66 @@ window.storeCheckoutUC.loadScriptAndMount = function (dotNetRef, jwt, clientLibr
     document.head.appendChild(script);
 };
 
-window.storeCheckoutUC.mount = function (dotNetRef, jwt, containerId) {
+// ── v0 manual-token path (SecureAcceptance.js, /up/v1/capture-contexts ctx) ─────────────
+// Unlike the v1 flow above, the v0 widget never auto-processes: show()'s promise resolves
+// with the raw transientTokenJwt once the customer confirms, and the page then submits the
+// follow-on /pts/v2/payments server-side. Same surface the legacy UnifiedForm.razor uses
+// (Accept(jwt) → accept.unifiedPayments() → up.show({containers:{paymentSelection}})).
+window.storeCheckoutUC.loadV0ScriptAndMount = function (dotNetRef, jwt, clientLibraryUrl, containerId) {
+    console.log("[StoreCheckoutUC:v0] clientLibraryUrl:", clientLibraryUrl);
+
+    if (!clientLibraryUrl) {
+        dotNetRef.invokeMethodAsync('OnUnifiedCheckoutError', 'No clientLibrary URL found in the v0 capture context JWT.');
+        return;
+    }
+
+    var existing = document.querySelector('script[data-uc-client-library-v0]');
+    if (existing) {
+        existing.remove();
+    }
+
+    var script = document.createElement('script');
+    script.src = clientLibraryUrl;
+    script.setAttribute('data-uc-client-library-v0', 'true');
+    script.onload = function () {
+        console.log("[StoreCheckoutUC:v0] SecureAcceptance client library loaded.");
+        window.storeCheckoutUC.mountV0(dotNetRef, jwt, containerId);
+    };
+    script.onerror = function () {
+        dotNetRef.invokeMethodAsync('OnUnifiedCheckoutError', 'Failed to load the v0 SecureAcceptance client library script.');
+    };
+    document.head.appendChild(script);
+};
+
+window.storeCheckoutUC.mountV0 = function (dotNetRef, jwt, containerId) {
+    if (typeof Accept !== 'function') {
+        dotNetRef.invokeMethodAsync('OnUnifiedCheckoutError', 'Accept() is not available after SecureAcceptance script load.');
+        return;
+    }
+
+    Accept(jwt).then(function (accept) {
+        console.log("[StoreCheckoutUC:v0] accept:", accept);
+        return accept.unifiedPayments();
+    }).then(function (up) {
+        console.log("[StoreCheckoutUC:v0] unifiedPayments instance:", up);
+        // The widget is rendering at this point; show()'s promise stays pending until the
+        // customer confirms, then resolves with the transient token (no auto-processing in v0).
+        dotNetRef.invokeMethodAsync('OnUnifiedCheckoutReady');
+        return up.show({
+            containers: {
+                paymentSelection: '#' + containerId
+            }
+        });
+    }).then(function (transientToken) {
+        console.log("[StoreCheckoutUC:v0] show() resolved with transient token.");
+        dotNetRef.invokeMethodAsync('ReceiveV0TransientToken', String(transientToken));
+    }).catch(function (err) {
+        console.error("[StoreCheckoutUC:v0] mount flow failed:", err);
+        dotNetRef.invokeMethodAsync('OnUnifiedCheckoutError', String(err && err.message ? err.message : err));
+    });
+};
+
+window.storeCheckoutUC.mount = function (dotNetRef, jwt, containerId, manualToken) {
     if (typeof VAS === 'undefined' || typeof VAS.UnifiedCheckout !== 'function') {
         console.error("[StoreCheckoutUC] VAS.UnifiedCheckout is not available after script load.");
         dotNetRef.invokeMethodAsync('OnUnifiedCheckoutError', 'VAS.UnifiedCheckout is not available after script load.');
@@ -80,7 +146,9 @@ window.storeCheckoutUC.mount = function (dotNetRef, jwt, containerId) {
         console.log("[StoreCheckoutUC] client:", client);
         window.storeCheckoutUC._client = client;
 
-        return client.createCheckout();
+        // Flow 3 (manual token): autoProcessing:false makes mount() resolve with the
+        // transientTokenJwt instead of an auto-processed result.
+        return manualToken ? client.createCheckout({ autoProcessing: false }) : client.createCheckout();
     }).then(function (checkout) {
         console.log("[StoreCheckoutUC] checkout:", checkout);
         window.storeCheckoutUC._checkout = checkout;

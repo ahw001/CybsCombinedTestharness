@@ -1,5 +1,4 @@
-using Microsoft.AspNetCore.Http.HttpResults;
-using CybsClass.EntityModels;
+﻿using CybsClass.EntityModels;
 using CybsClass.WebApi.Service.Services.DBOperations;
 
 namespace CybsClass.WebApi.Service;
@@ -12,39 +11,34 @@ public static class CategoryEndpoints
 
         group.MapGet("/", async () =>
         {
-            return await DBCategoryServices.GetAllCategories();
+            return (await DBCategoryServices.GetAllCategories()).ToOkOrError();
         })
         .WithName("GetAllCategories");
 
-        group.MapGet("/{id}", async Task<Results<Ok<Category>, NotFound>> (int categoryid) =>
+        group.MapGet("/{categoryid}", async (int categoryid) =>
         {
-            var category = await DBCategoryServices.GetCategoryById(categoryid);
-            return category is not null ? TypedResults.Ok(category) : TypedResults.NotFound();
+            return (await DBCategoryServices.GetCategoryById(categoryid))
+                .ToOkOrNotFound($"No Category found with id {categoryid}.");
         })
         .WithName("GetCategoryById");
 
-        group.MapPut("/{id}", async Task<Results<Ok, NotFound>> (int categoryid, Category category) =>
+        group.MapPut("/{categoryid}", async (int categoryid, Category category) =>
         {
-            var affected = await DBCategoryServices.UpdateCategory(categoryid, category);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBCategoryServices.UpdateCategory(categoryid, category))
+                .ToOkOrNotFound($"No Category found with id {categoryid} to update.");
         })
         .WithName("UpdateCategory");
 
         group.MapPost("/", async (Category category) =>
         {
-            var created = await DBCategoryServices.CreateCategory(category);
-            if (created is null)
-            {
-                return Results.Problem("Failed to create category.");
-            }
-            return Results.Created($"/api/Category/{created.CategoryId}", created);
+            return (await DBCategoryServices.CreateCategory(category)).ToOkOrError();
         })
         .WithName("CreateCategory");
 
-        group.MapDelete("/{id}", async Task<Results<Ok, NotFound>> (int categoryid) =>
+        group.MapDelete("/{categoryid}", async (int categoryid) =>
         {
-            var affected = await DBCategoryServices.DeleteCategory(categoryid);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBCategoryServices.DeleteCategory(categoryid))
+                .ToOkOrNotFound($"No Category found with id {categoryid} to delete.");
         })
         .WithName("DeleteCategory");
     }

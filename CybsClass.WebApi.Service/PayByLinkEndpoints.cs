@@ -49,7 +49,19 @@ public static class PayByLinkEndpoints
                     return Results.Ok(response);
                 }
 
-                PayByLinkTransaction entity = await PersistPayByLinkData.CreatePayByLinkAsync(dto, cybsResponse);
+                PayByLinkTransaction? entity = await PersistPayByLinkData.CreatePayByLinkAsync(dto, cybsResponse);
+
+                if (entity is null)
+                {
+                    response.Error = new ErrorObject
+                    {
+                        Error = "DATABASE_ERROR",
+                        Message = "The Pay by Link was created at CyberSource but could not be saved locally.",
+                        Reason = "Database Error"
+                    };
+                    Console.WriteLine($"Outbound (persist error): {JsonSerializer.Serialize(response, _logOptions)}");
+                    return Results.Ok(response);
+                }
 
                 response = MapToDto(entity);
 
@@ -71,8 +83,17 @@ public static class PayByLinkEndpoints
 
             try
             {
-                List<PayByLinkTransaction> records = await DBPayByLinkServices.GetAllPayByLinkTransactionsAsync();
-                List<PayByLinkResponseDto> result = records.Select(MapToDto).ToList();
+                var recordsResult = await DBPayByLinkServices.GetAllPayByLinkTransactionsAsync();
+
+                if (!recordsResult.Ok)
+                {
+                    return Results.Ok(new List<PayByLinkResponseDto>
+                    {
+                        new PayByLinkResponseDto { Error = recordsResult.Error }
+                    });
+                }
+
+                List<PayByLinkResponseDto> result = recordsResult.Value!.Select(MapToDto).ToList();
 
                 Console.WriteLine($"Returning {result.Count} Pay by Link record(s).");
                 return Results.Ok(result);
@@ -97,7 +118,16 @@ public static class PayByLinkEndpoints
 
             try
             {
-                PayByLinkTransaction? entity = await DBPayByLinkServices.GetByIdAsync(id);
+                var entityResult = await DBPayByLinkServices.GetByIdAsync(id);
+
+                if (!entityResult.Ok)
+                {
+                    response.Error = entityResult.Error;
+                    Console.WriteLine($"Outbound (db error): {JsonSerializer.Serialize(response, _logOptions)}");
+                    return Results.Ok(response);
+                }
+
+                PayByLinkTransaction? entity = entityResult.Value;
 
                 if (entity is null)
                 {
@@ -131,7 +161,7 @@ public static class PayByLinkEndpoints
                 await PersistPayByLinkData.UpdatePayByLinkStatusAsync(id, newStatus, responseStr);
 
                 // Re-fetch to return fresh data
-                PayByLinkTransaction? updated = await DBPayByLinkServices.GetByIdAsync(id);
+                PayByLinkTransaction? updated = (await DBPayByLinkServices.GetByIdAsync(id)).Value;
                 response = updated is not null ? MapToDto(updated) : MapToDto(entity);
                 response.Status = newStatus;
 

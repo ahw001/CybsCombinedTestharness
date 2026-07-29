@@ -1,51 +1,35 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.EntityModels;
 
 namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public class DBSampleInvoiceDetailServices
     {
-        public static async Task<List<SampleInvoiceDetail>> GetAllSampleInvoiceDetails()
-        {
-            try
+        public static Task<DbResult<List<SampleInvoiceDetail>>> GetAllSampleInvoiceDetails() =>
+            DbErrorHandler.GuardAsync(nameof(GetAllSampleInvoiceDetails), async () =>
             {
                 Console.WriteLine("[DBSampleInvoiceDetailServices] Fetching all sample invoice details.");
                 using CybsDbContext db = new();
                 return await db.SampleInvoiceDetails.ToListAsync();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DBSampleInvoiceDetailServices] Error fetching all sample invoice details: {ex}");
-                return [];
-            }
-        }
+            });
 
-        public static async Task<SampleInvoiceDetail?> GetSampleInvoiceDetailById(int id)
-        {
-            try
+        public static Task<DbResult<SampleInvoiceDetail?>> GetSampleInvoiceDetailById(int id) =>
+            DbErrorHandler.GuardAsync<SampleInvoiceDetail?>(nameof(GetSampleInvoiceDetailById), async () =>
             {
                 Console.WriteLine($"[DBSampleInvoiceDetailServices] Fetching sample invoice detail with ID {id}.");
                 using CybsDbContext db = new();
                 return await db.SampleInvoiceDetails.AsNoTracking()
                     .FirstOrDefaultAsync(model => model.SampleInvoiceId == id);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DBSampleInvoiceDetailServices] Error fetching sample invoice detail with ID {id}: {ex}");
-                return null;
-            }
-        }
+            });
 
-        public static async Task<int> UpdateSampleInvoiceDetail(int id, SampleInvoiceDetail sampleInvoiceDetail)
-        {
-            try
+        public static Task<DbResult<int>> UpdateSampleInvoiceDetail(int id, SampleInvoiceDetail sampleInvoiceDetail) =>
+            DbErrorHandler.GuardAsync(nameof(UpdateSampleInvoiceDetail), async () =>
             {
                 Console.WriteLine($"[DBSampleInvoiceDetailServices] Updating sample invoice detail with ID {id}.");
                 using CybsDbContext db = new();
                 return await db.SampleInvoiceDetails
                     .Where(model => model.SampleInvoiceId == id)
                     .ExecuteUpdateAsync(setters => setters
-                        .SetProperty(m => m.SampleInvoiceId, sampleInvoiceDetail.SampleInvoiceId)
                         .SetProperty(m => m.CustomerInformationName, sampleInvoiceDetail.CustomerInformationName)
                         .SetProperty(m => m.CustomerInformationEmail, sampleInvoiceDetail.CustomerInformationEmail)
                         .SetProperty(m => m.CustomerInformationMerchantCustomerId, sampleInvoiceDetail.CustomerInformationMerchantCustomerId)
@@ -74,17 +58,10 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                         .SetProperty(m => m.OrderInformationLineItemsTaxAmount, sampleInvoiceDetail.OrderInformationLineItemsTaxAmount)
                         .SetProperty(m => m.OrderInformationLineItemsTaxRate, sampleInvoiceDetail.OrderInformationLineItemsTaxRate)
                         .SetProperty(m => m.OrderInformationLineItemsTotalAmount, sampleInvoiceDetail.OrderInformationLineItemsTotalAmount));
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DBSampleInvoiceDetailServices] Error updating sample invoice detail with ID {id}: {ex}");
-                return 0;
-            }
-        }
+            });
 
-        public static async Task<SampleInvoiceDetail?> CreateSampleInvoiceDetail(SampleInvoiceDetail sampleInvoiceDetail)
-        {
-            try
+        public static Task<DbResult<SampleInvoiceDetail?>> CreateSampleInvoiceDetail(SampleInvoiceDetail sampleInvoiceDetail) =>
+            DbErrorHandler.GuardAsync<SampleInvoiceDetail?>(nameof(CreateSampleInvoiceDetail), async () =>
             {
                 Console.WriteLine("[DBSampleInvoiceDetailServices] Inserting new sample invoice detail.");
                 using CybsDbContext db = new();
@@ -92,29 +69,16 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 await db.SaveChangesAsync();
                 Console.WriteLine($"[DBSampleInvoiceDetailServices] Sample invoice detail created with ID {sampleInvoiceDetail.SampleInvoiceId}.");
                 return sampleInvoiceDetail;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DBSampleInvoiceDetailServices] Error creating sample invoice detail: {ex}");
-                return null;
-            }
-        }
+            });
 
-        public static async Task<int> DeleteSampleInvoiceDetail(int id)
-        {
-            try
+        public static Task<DbResult<int>> DeleteSampleInvoiceDetail(int id) =>
+            DbErrorHandler.GuardAsync(nameof(DeleteSampleInvoiceDetail), async () =>
             {
                 Console.WriteLine($"[DBSampleInvoiceDetailServices] Deleting sample invoice detail with ID {id}.");
                 using CybsDbContext db = new();
                 return await db.SampleInvoiceDetails
                     .Where(model => model.SampleInvoiceId == id)
                     .ExecuteDeleteAsync();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DBSampleInvoiceDetailServices] Error deleting sample invoice detail with ID {id}: {ex}");
-                return 0;
-            }
-        }
+            });
     }
 }

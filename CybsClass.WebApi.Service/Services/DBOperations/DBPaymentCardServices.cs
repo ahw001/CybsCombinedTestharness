@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using CybsClass.EntityModels;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.Cybersource.Models.Mappers;
@@ -7,123 +7,108 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public class DBPaymentCardServices
     {
-        private static Dictionary<string, string> dbResults = new();
-        public static async Task<int> GetPaymentCardCountAsync()
-        {
-            using CybsDbContext db = new();
-            return await db.PaymentCardInfos.CountAsync();
-        }
-        public static async Task<List<PaymentCardDto>> GetPaymentCardInfos()
-        {
-            try 
+        public static Task<DbResult<int>> GetPaymentCardCountAsync() =>
+            DbErrorHandler.GuardAsync(nameof(GetPaymentCardCountAsync), async () =>
             {
-                Console.WriteLine("Geting full list of Payment Cards ...");
                 using CybsDbContext db = new();
-                var paymentCardInfos =  await db.PaymentCardInfos.ToListAsync();
-                List<PaymentCardDto> paymentCardDtos = PaymentCardMapper.Map(paymentCardInfos)!;
-                return paymentCardDtos;
-            } 
-            catch (Exception ex) 
-            { 
-                Console.WriteLine($"Error getting full list of Payment Cards: {ex.ToString()}");
-                var paymentCardInfos = new List<PaymentCardDto>();
-                PaymentCardDto paymentCardDto = new PaymentCardDto();
-                paymentCardDto.Error = ex.ToString();
-                paymentCardInfos.Add(paymentCardDto);
-                return paymentCardInfos;
-            }
+                return await db.PaymentCardInfos.CountAsync();
+            });
 
-        }
+        public static Task<List<PaymentCardDto>> GetPaymentCardInfos() =>
+            DbErrorHandler.GuardDtoAsync(
+                nameof(GetPaymentCardInfos),
+                async () =>
+                {
+                    Console.WriteLine("Geting full list of Payment Cards ...");
+                    using CybsDbContext db = new();
+                    var paymentCardInfos = await db.PaymentCardInfos.ToListAsync();
+                    return PaymentCardMapper.Map(paymentCardInfos)!;
+                },
+                // PaymentCardDto.Error is a string on the wire and the client deserializes it
+                // as one — carry the ErrorObject through as compact JSON rather than changing
+                // the property's type. See the DTO error-shape note in DbErrorHandler.
+                err => new List<PaymentCardDto>
+                {
+                    new PaymentCardDto { Error = DbErrorHandler.ToErrorString(err) }
+                });
 
         public static async Task<PaymentCardDto?> GetPaymentCardInfoByUsingId(int paymentcardid)
         {
-            try 
+            try
             {
                 Console.WriteLine($"Geting Payment Card for: {paymentcardid}");
                 using CybsDbContext db = new();
-                Task<PaymentCardInfo?> task = db.PaymentCardInfos.AsNoTracking()
+                var paymentCardInfo = await db.PaymentCardInfos.AsNoTracking()
                             .FirstOrDefaultAsync(model => model.PaymentCardId == paymentcardid);
 
-                var paymentCardInfo = await task;
                 if (paymentCardInfo == null)
                 {
                     return null;
                 }
                 return PaymentCardMapper.Map(paymentCardInfo);
-            } 
-            catch (Exception ex) 
+            }
+            catch (Exception ex)
             {
-                Console.WriteLine($"Error Payment Card for ID: {ex.ToString()}");
-                var paymentCardDto = new PaymentCardDto();
-                paymentCardDto.Error = ex.ToString(); 
-                return paymentCardDto;
+                DbErrorHandler.Log(nameof(GetPaymentCardInfoByUsingId), ex);
+                return new PaymentCardDto { Error = DbErrorHandler.BuildErrorString(ex, nameof(GetPaymentCardInfoByUsingId)) };
             }
         }
+
+        public static Task<DbResult<PaymentCardInfo?>> GetPaymentCardInfoEntityByIdAsync(int paymentcardid) =>
+            DbErrorHandler.GuardAsync<PaymentCardInfo?>(nameof(GetPaymentCardInfoEntityByIdAsync), async () =>
+            {
+                using CybsDbContext db = new();
+                return await db.PaymentCardInfos.AsNoTracking()
+                    .FirstOrDefaultAsync(model => model.PaymentCardId == paymentcardid);
+            });
+
         public static async Task<Dictionary<string, string>> CreatePaymentCardInfo(PaymentCardDto paymentCardDto)
         {
-            try 
+            Dictionary<string, string> dbResults = new();
+
+            try
             {
-                dbResults.Clear();
                 PaymentCardInfo paymentCardInfo = PaymentCardMapper.Map(paymentCardDto)!;
                 using CybsDbContext db = new();
                 db.PaymentCardInfos.Add(paymentCardInfo);
                 var affected = await db.SaveChangesAsync();
-                var instertedId = paymentCardInfo.PaymentCardId;
                 dbResults.Add("Affected", affected.ToString());
-                dbResults.Add("PaymentCardId", instertedId.ToString());
-                return dbResults;
-            } 
-            catch (Exception ex) 
-            {
-                Console.WriteLine($"Error Creating Payment Card - {ex.ToString()}");
-                dbResults.Add("Error", ex.ToString());
+                dbResults.Add("PaymentCardId", paymentCardInfo.PaymentCardId.ToString());
                 return dbResults;
             }
-
+            catch (Exception ex)
+            {
+                DbErrorHandler.Log(nameof(CreatePaymentCardInfo), ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
+            }
         }
 
-        public static async Task<List<PaymentCardInfo>> GetAllPaymentCardInfoEntities()
-        {
-            try
+        public static Task<DbResult<List<PaymentCardInfo>>> GetAllPaymentCardInfoEntities() =>
+            DbErrorHandler.GuardAsync(nameof(GetAllPaymentCardInfoEntities), async () =>
             {
                 Console.WriteLine("Getting full list of Payment Card entities ...");
                 using CybsDbContext db = new();
                 return await db.PaymentCardInfos.ToListAsync();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error getting full list of Payment Card entities: {ex}");
-                return [];
-            }
-        }
+            });
 
-        public static async Task<int> DeletePaymentCardInfo(int id)
-        {
-            try
+        public static Task<DbResult<int>> DeletePaymentCardInfo(int id) =>
+            DbErrorHandler.GuardAsync(nameof(DeletePaymentCardInfo), async () =>
             {
                 Console.WriteLine($"Deleting Payment Card with ID {id} ...");
                 using CybsDbContext db = new();
                 return await db.PaymentCardInfos
                     .Where(model => model.PaymentCardId == id)
                     .ExecuteDeleteAsync();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error deleting Payment Card with ID {id}: {ex}");
-                return 0;
-            }
-        }
+            });
 
-        public static async Task<int> UpdatePaymentCardInfo(int id, PaymentCardDto paymentCardDto)
-        {
-            try
+        public static Task<DbResult<int>> UpdatePaymentCardInfo(int id, PaymentCardDto paymentCardDto) =>
+            DbErrorHandler.GuardAsync(nameof(UpdatePaymentCardInfo), async () =>
             {
                 PaymentCardInfo paymentCardInfo = PaymentCardMapper.Map(paymentCardDto)!;
                 using CybsDbContext db = new();
-                var affected = await db.PaymentCardInfos
+                return await db.PaymentCardInfos
                 .Where(model => model.PaymentCardId == id)
                 .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(m => m.PaymentCardId, paymentCardInfo.PaymentCardId)
                     .SetProperty(m => m.B2cCustomerId, paymentCardInfo.B2cCustomerId)
                     .SetProperty(m => m.AccountNumber, paymentCardInfo.AccountNumber)
                     .SetProperty(m => m.TokenValue, paymentCardInfo.TokenValue)
@@ -138,14 +123,6 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                     .SetProperty(m => m.PaymentInstrumentId, paymentCardInfo.PaymentInstrumentId)
                     .SetProperty(m => m.ResponseTransactionJson, paymentCardInfo.ResponseTransactionJson)
                     );
-                return affected;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error Updating Payment Card - {ex.ToString()}");
-                return 0;
-            }
-        }
+            });
     }
 }
-

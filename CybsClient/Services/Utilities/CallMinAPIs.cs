@@ -354,6 +354,22 @@ namespace CybsClient.Services.Utilities
 
                     // POST the transaction for the real Unified Checkout v1 session *******************
                 }
+                else if (currentTransaction == CcTransactionTypes.UNIFIED_CHECKOUT_V0_CONTEXT)
+                {
+                    // POST for the config-driven v0 capture context (manual transient-token vehicle) **
+
+                    response = await client.PostAsync("/api/tokens/v0sessioncontext", content);
+
+                    // POST for the config-driven v0 capture context ***********************************
+                }
+                else if (currentTransaction == CcTransactionTypes.UNIFIED_CHECKOUT_TOKEN_PAYMENT)
+                {
+                    // POST the manual transient-token follow-on payment (/pts/v2/payments) ************
+
+                    response = await client.PostAsync("/api/unified/v1tokenpayment", content);
+
+                    // POST the manual transient-token follow-on payment *******************************
+                }
                 else if (currentTransaction == CcTransactionTypes.UNIFIED_CHECKOUT_PAYMENT)
                 {
                     // POST the transaction for unified checkout *******************************

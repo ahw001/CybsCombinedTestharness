@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore.ChangeTracking;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.Cybersource.Models.Json;
 using CybsClass.EntityModels;
@@ -10,25 +11,29 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class PersistCustomerData
     {
-        private static B2cCustomer b2CCustomer = new B2cCustomer();
-        private static Dictionary<string, object> dbResults = new Dictionary<string, object>();
-
         public static async Task<Dictionary<string, object>> InsertCustomers(B2cCustomerDto b2cCustomerDto, JsonNode authTransNode)
         {
-            dbResults = new();
+            Dictionary<string, object> dbResults = new();
 
             Console.WriteLine("Inserting customer data ...");
             try
             {
-                int orderDetailInsert = 0;
-
                 AuthTransResponseJson authTransResponseJson = new AuthTransResponseJson();
 
                 authTransResponseJson = JsonSerializer.Deserialize<AuthTransResponseJson>(authTransNode.ToString())!;
 
                 using CybsDbContext db = new();
 
-                //if (db.B2cCustomers is null) return (0);
+                // Customer + card, order, order lines and the auth response are one unit of
+                // work — a failure part way through must not leave an orphan customer or an
+                // order with no auth record. The context enables retry-on-failure, whose
+                // execution strategy refuses a user-initiated transaction unless the whole
+                // unit runs through the strategy, so the entire block is what gets retried.
+                var strategy = db.Database.CreateExecutionStrategy();
+                await strategy.ExecuteAsync(async () =>
+                {
+                dbResults.Clear();
+                await using var tx = await db.Database.BeginTransactionAsync();
 
                 B2cCustomer c = new();
 
@@ -104,13 +109,10 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                         orderDetails.Quantity = 1;
                         orderDetails.UnitPrice = product.UnitPrice ?? 0m;
 
-                        EntityEntry<OrderDetail> detailEntity = db.OrderDetails.Add(orderDetails);
-                        //Console.WriteLine($"Order Detail State: {entity.State}, OrderId: {orderDetails.OrderId}");
-
-                        int affected2 = db.SaveChanges();
-                        orderDetailInsert++;
-                        //Console.WriteLine($"Order Detail State: {entity.State}, OrderId: {o.OrderId}");
+                        db.OrderDetails.Add(orderDetails);
                     }
+
+                    await db.SaveChangesAsync();
                 }
 
                 Console.WriteLine("Inserting auth transaction data ...");
@@ -134,11 +136,6 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                     authDb.AuthorizedAmount = 0.00M;
                 }
 
-                //Change to JSON Node then ToString()
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                string jsonString = JsonSerializer.Serialize(b2CCustomer, options);
-                JsonNode jsonLinks = JsonNode.Parse(jsonString)!;
-
                 authDb.Links = authTransNode!["_links"]!.ToString()!;
 
                 authDb.ProcInfoApprovalCode = authTransResponseJson.ProcessorInformation?.ApprovalCode ?? "0";
@@ -149,20 +146,18 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 authDb.TokenInformationInstId = authTransResponseJson.TokenInformation?.InstrumentIdentifier?.Id ?? "0";
                 authDb.TokenInformationInstIdNew = Convert.ToString(authTransResponseJson.TokenInformation?.InstrumentIdentifierNew) ?? "0";
 
-                EntityEntry<AuthTransResponse> authEntity = db.AuthTransResponses.Add(authDb);
-                //Console.WriteLine($"Auth Trans State: {entity.State}, ID: {authDb.AuthTransResponsesId}");
+                db.AuthTransResponses.Add(authDb);
+                await db.SaveChangesAsync();
 
-                int affected3 = db.SaveChanges();
-                //Console.WriteLine($"Auth Trans State: {entity.State}, ID: {authDb.AuthTransResponsesId}");
+                await tx.CommitAsync();
+                });
 
                 return dbResults;
             }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("Exception", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log(nameof(InsertCustomers), ex);
+                return new Dictionary<string, object> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
         }
     }

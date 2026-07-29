@@ -16,7 +16,8 @@ public partial class FollowOnTransResponseDto
     public string TransactionType { get; set; } = null!;
 
     public string? ResponseTransactionJson { get; set; }
-    public string? Error { get; set; }
+    [JsonPropertyName("error")]
+    public ErrorObject? Error { get; set; }
 
     [JsonPropertyName("_links")]
     public Links? Links { get; set; }

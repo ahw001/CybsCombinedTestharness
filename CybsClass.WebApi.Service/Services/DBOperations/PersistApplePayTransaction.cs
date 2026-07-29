@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.Cybersource.Models.Json;
@@ -29,6 +30,16 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 
                 using CybsDbContext db = new();
 
+                // Customer, order, order lines and the Apple Pay transaction row are one unit
+                // of work — a failure part way through must not leave an orphan customer. The
+                // context enables retry-on-failure, whose execution strategy refuses a
+                // user-initiated transaction unless the whole unit runs through the strategy.
+                var strategy = db.Database.CreateExecutionStrategy();
+                await strategy.ExecuteAsync(async () =>
+                {
+                dbResults.Clear();
+                await using var tx = await db.Database.BeginTransactionAsync();
+
                 B2cCustomer c = new();
                 c.FirstName = b2cCustomerDto.FirstName!;
                 c.LastName = b2cCustomerDto.LastName!;
@@ -40,7 +51,7 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 c.PostalCode = b2cCustomerDto.PostalCode!;
                 c.Country = b2cCustomerDto.Country!;
 
-                EntityEntry<B2cCustomer> customerEntity = db.B2cCustomers.Add(c);
+                db.B2cCustomers.Add(c);
                 await db.SaveChangesAsync();
                 dbResults.Add("B2cCustomerId", c.B2cCustomerId);
 
@@ -49,7 +60,7 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 o.OrderDate = DateTime.Now;
 
                 db.Orders.Add(o);
-                db.SaveChanges();
+                await db.SaveChangesAsync();
                 dbResults.Add("OrderId", o.OrderId);
 
                 if (b2cCustomerDto.Cart is not null)
@@ -64,8 +75,9 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                             UnitPrice = product.UnitPrice ?? 0m
                         };
                         db.OrderDetails.Add(orderDetails);
-                        db.SaveChanges();
                     }
+
+                    await db.SaveChangesAsync();
                 }
 
                 var applePayDb = new ApplePayTransaction
@@ -89,17 +101,18 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 };
 
                 db.ApplePayTransactions.Add(applePayDb);
-                db.SaveChanges();
+                await db.SaveChangesAsync();
                 dbResults.Add("ApplePayTransactionsId", applePayDb.ApplePayTransactionsId);
+
+                await tx.CommitAsync();
+                });
 
                 return dbResults;
             }
             catch (Exception ex)
             {
-                dbResults = new Dictionary<string, object>();
-                dbResults.Add("Exception", ex.Message);
-                Console.WriteLine($"Exception persisting Apple Pay transaction: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log(nameof(InsertApplePayTransaction), ex);
+                return new Dictionary<string, object> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
         }
     }

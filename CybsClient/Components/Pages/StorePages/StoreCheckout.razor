@@ -23,11 +23,40 @@
 
     @if (Phase == CheckoutPhase.CustomerForm)
     {
-        <div class="form-check form-switch mb-3">
-            <input class="form-check-input" type="checkbox" id="useRestBackup" @bind="UseRestBackup" />
-            <label class="form-check-label" for="useRestBackup">
-                Use simple REST API (backup — skip Unified Checkout)
-            </label>
+        <div class="mb-3">
+            <label class="form-label d-block fw-bold">Integration path</label>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="ucIntegrationMode" id="modeV1"
+                       checked="@(Mode == IntegrationMode.UnifiedV1)"
+                       @onchange="@(() => Mode = IntegrationMode.UnifiedV1)" />
+                <label class="form-check-label" for="modeV1">
+                    Unified Checkout v1 (embedded — auto-processes unless the account is configured to return a transient token)
+                </label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="ucIntegrationMode" id="modeV1Manual"
+                       checked="@(Mode == IntegrationMode.UnifiedV1ManualToken)"
+                       @onchange="@(() => Mode = IntegrationMode.UnifiedV1ManualToken)" />
+                <label class="form-check-label" for="modeV1Manual">
+                    Unified Checkout v1 — manual transient token ("Flow 3 / No Service Orchestration": <code>createCheckout({ autoProcessing: false })</code>; you submit the follow-on <code>/pts/v2/payments</code>)
+                </label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="ucIntegrationMode" id="modeV0Manual"
+                       checked="@(Mode == IntegrationMode.UnifiedV0ManualToken)"
+                       @onchange="@(() => Mode = IntegrationMode.UnifiedV0ManualToken)" />
+                <label class="form-check-label" for="modeV0Manual">
+                    Unified Checkout v0 — manual transient token (widget returns the <code>transientTokenJwt</code>; you submit the follow-on <code>/pts/v2/payments</code>)
+                </label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="ucIntegrationMode" id="modeRest"
+                       checked="@(Mode == IntegrationMode.RestBackup)"
+                       @onchange="@(() => Mode = IntegrationMode.RestBackup)" />
+                <label class="form-check-label" for="modeRest">
+                    Simple REST API (backup — skip Unified Checkout)
+                </label>
+            </div>
         </div>
 
         @if (!UseRestBackup)
@@ -100,10 +129,52 @@
 
                 @if (ucReady)
                 {
-                    <p class="text-muted">Complete your payment in the form above — this account processes the payment automatically once you confirm.</p>
+                    <p class="text-muted">
+                        @(Mode is IntegrationMode.UnifiedV0ManualToken or IntegrationMode.UnifiedV1ManualToken
+                            ? "Complete the payment form above — the widget will return a transient token for the manual follow-on payment (nothing is charged yet)."
+                            : "Complete your payment in the form above — this account processes the payment automatically once you confirm.")
+                    </p>
                 }
 
                 <button class="btn btn-outline-secondary" @onclick="CancelUnifiedCheckout">
+                    Cancel
+                </button>
+            </div>
+        }
+        else if (Phase == CheckoutPhase.TokenReceived)
+        {
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <h4 class="alert-heading">Transient token received</h4>
+                    <p class="mb-0">
+                        The widget returned a <code>transientTokenJwt</code> without processing the payment.
+                        Review the follow-on request below, then submit it to <code>/pts/v2/payments</code>.
+                        Transient tokens expire 15 minutes after issuance.
+                    </p>
+                </div>
+
+                <h6>Decoded transient token</h6>
+                <pre class="bg-light p-3 border rounded small">@transientTokenDecodedJson</pre>
+
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h6 class="card-title">
+                            Follow-on request options (config: @(UcSettings.SelectedConfig?.Name ?? "default Card-only"))
+                        </h6>
+                        <ul class="mb-0 small">
+                            <li>Amount: <strong>@FollowOnAmount USD</strong></li>
+                            <li>actionList <code>TOKEN_CREATE</code>: <strong>@(FollowOnTokenCreate ? "yes" : "no")</strong></li>
+                            <li>actionTokenTypes: <strong>@(FollowOnActionTokenTypes is { Length: > 0 } ? string.Join(", ", FollowOnActionTokenTypes) : "(none — merchant defaults apply)")</strong></li>
+                            <li>orderInformation.billTo: <strong>@(IncludeBillTo ? "included from the customer form" : "omitted (token session data backs it)")</strong></li>
+                            <li>orderInformation.shipTo: <strong>@(IncludeShipTo ? "included from the customer form" : "omitted entirely")</strong></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" disabled="@submittingTokenPayment" @onclick="SubmitTokenPayment">
+                    @(submittingTokenPayment ? "Submitting..." : "Submit /pts/v2/payments")
+                </button>
+                <button class="btn btn-outline-secondary ms-2" disabled="@submittingTokenPayment" @onclick="CancelUnifiedCheckout">
                     Cancel
                 </button>
             </div>
@@ -113,7 +184,11 @@
             <div class="col-12">
                 <div class="alert alert-success">
                     <h4 class="alert-heading">Unified Checkout complete</h4>
-                    <p>CyberSource processed this payment automatically as part of the embedded checkout flow.</p>
+                    <p>
+                        @(manualCompletion
+                            ? "The follow-on /pts/v2/payments call was submitted server-side with the transient token."
+                            : "CyberSource processed this payment automatically as part of the embedded checkout flow.")
+                    </p>
                 </div>
                 <pre class="bg-light p-3 border rounded">@completionResultJson</pre>
                 <a class="btn btn-dark" href="/store">Continue Shopping</a>
@@ -136,7 +211,17 @@
 </div>
 
 @code {
-    private enum CheckoutPhase { CustomerForm, UnifiedCheckoutMount, Completed }
+    private enum CheckoutPhase { CustomerForm, UnifiedCheckoutMount, TokenReceived, Completed }
+
+    // v1 = embedded VAS.UnifiedCheckout (auto-processes under this account's Business Center
+    // completeMandate default; auto-detects a returned transient token if that default is off);
+    // v1 manual = same v1 session but createCheckout({ autoProcessing: false }) — the UC guide's
+    // "Flow 3 / No Service Orchestration": mount() resolves with the transientTokenJwt, nothing
+    // is processed, and the follow-on /pts/v2/payments is entirely ours. Live-verified
+    // 2026-07-28: the client-side option overrides the merchant-level completeMandate default.
+    // v0 manual = config-driven /up/v1/capture-contexts + SecureAcceptance.js, whose show()
+    // resolves with the transientTokenJwt — the same manual contract on the v0 surface.
+    private enum IntegrationMode { UnifiedV1, UnifiedV1ManualToken, UnifiedV0ManualToken, RestBackup }
 
     private static readonly List<string> UnifiedFormElements =
         new() { "ShowMainForm", "ShowBilling", "ShowDefaults", "ShowCart" };
@@ -147,13 +232,36 @@
     private List<string> CurrentFormElements => UseRestBackup ? RestFormElements : UnifiedFormElements;
 
     private CheckoutPhase Phase = CheckoutPhase.CustomerForm;
-    private bool UseRestBackup { get; set; }
+    private IntegrationMode Mode { get; set; } = IntegrationMode.UnifiedV1;
+    private bool UseRestBackup => Mode == IntegrationMode.RestBackup;
     private bool Show = true;
     private bool ucReady = false;
     private bool _pendingMount = false;
 
     private string? error;
     private string? completionResultJson;
+
+    // ── Manual transient-token follow-on state ───────────────────────────────────────────
+    private string? transientTokenJwt;
+    private string? transientTokenDecodedJson;
+    private bool submittingTokenPayment = false;
+    private bool manualCompletion = false;
+
+    private bool FollowOnTokenCreate => UcSettings.SelectedConfig?.EnableTms ?? false;
+
+    private string[]? FollowOnActionTokenTypes =>
+        string.IsNullOrWhiteSpace(UcSettings.SelectedConfig?.TmsTokenTypes)
+            ? null
+            : UcSettings.SelectedConfig!.TmsTokenTypes!
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private bool IncludeBillTo =>
+        !string.Equals(UcSettings.SelectedConfig?.BillingType, "NONE", StringComparison.OrdinalIgnoreCase);
+
+    private bool IncludeShipTo => UcSettings.SelectedConfig?.RequestShipping ?? true;
+
+    private string FollowOnAmount =>
+        (b2CCustomer.TotalAmount ?? cartService.Total ?? 0m).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
 
     private B2cCustomer b2CCustomer = new();
     private CaptureContextDto captureContextDto = new();
@@ -225,9 +333,22 @@
 
             var clientLibraryUrl = ExtractClientLibrary(captureContextDto.Ctx);
 
-            await JSRuntime.InvokeVoidAsync(
-                "storeCheckoutUC.loadScriptAndMount",
-                _dotNetRef, captureContextDto.Ctx, clientLibraryUrl, "ucPaymentContainer");
+            // Both ctx flavors carry ctx[0].data.clientLibrary — SecureAcceptance.js for the
+            // v0-manual mode, UnifiedCheckout.js for v1. The final argument asks the v1 SDK for
+            // createCheckout({ autoProcessing: false }) — the Flow 3 manual-token mode.
+            if (Mode == IntegrationMode.UnifiedV0ManualToken)
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "storeCheckoutUC.loadV0ScriptAndMount",
+                    _dotNetRef, captureContextDto.Ctx, clientLibraryUrl, "ucPaymentContainer");
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "storeCheckoutUC.loadScriptAndMount",
+                    _dotNetRef, captureContextDto.Ctx, clientLibraryUrl, "ucPaymentContainer",
+                    Mode == IntegrationMode.UnifiedV1ManualToken);
+            }
         }
     }
 
@@ -354,17 +475,23 @@
             requestCustomer.TargetOrigin = new Uri(Navigation.BaseUri).GetLeftPart(UriPartial.Authority);
             requestCustomer.UnifiedCheckoutConfigurationId = UcSettings.SelectedConfig?.UnifiedCheckoutConfigurationId;
 
-            // Real Unified Checkout v1 session (uc/v1/sessions) — deliberately NOT
-            // CcTransactionTypes.UNIFIED_CHECKOUT, which is the legacy v0 /unifiedcheckout
-            // page's transaction type and stays wired to /api/tokens/capturecontext unchanged.
-            sessionTransJson.OriginalTransactionType = CcTransactionTypes.UNIFIED_CHECKOUT_V1;
-            sessionTransJson.CurrentTransactionType = CcTransactionTypes.UNIFIED_CHECKOUT_V1;
+            // v1 default: real Unified Checkout session (uc/v1/sessions). v0-manual mode: the
+            // config-driven /up/v1/capture-contexts variant whose widget returns the transient
+            // token. Both are deliberately NOT CcTransactionTypes.UNIFIED_CHECKOUT, which is the
+            // legacy /unifiedcheckout page's type and stays wired to /api/tokens/capturecontext
+            // unchanged.
+            var sessionType = Mode == IntegrationMode.UnifiedV0ManualToken
+                ? CcTransactionTypes.UNIFIED_CHECKOUT_V0_CONTEXT
+                : CcTransactionTypes.UNIFIED_CHECKOUT_V1;
+
+            sessionTransJson.OriginalTransactionType = sessionType;
+            sessionTransJson.CurrentTransactionType = sessionType;
 
             var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
             string jsonString = JsonSerializer.Serialize(requestCustomer, options);
 
             SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
-                sessionTransactions, CcTransactionTypes.UNIFIED_CHECKOUT_V1);
+                sessionTransactions, sessionType);
 
             if (sessionResponse is null)
             {
@@ -425,6 +552,69 @@
     {
         Phase = CheckoutPhase.CustomerForm;
         ucReady = false;
+        transientTokenJwt = null;
+        transientTokenDecodedJson = null;
+        manualCompletion = false;
+        StateHasChanged();
+    }
+
+    // ── Manual transient-token handling (both vehicles land here) ───────────────────────
+
+    // v0 SecureAcceptance path: show()'s promise resolved with the raw transientTokenJwt.
+    [JSInvokable]
+    public void ReceiveV0TransientToken(string token)
+    {
+        EnterTokenReceived(token);
+    }
+
+    // A transient token payload is { iss: "Flex/08", content: { paymentInformation: ... }, ... }
+    // with no top-level transaction outcome; an autoProcessing completion payload carries
+    // status/outcome at the top level and no content node. This distinction is what lets the
+    // v1 path auto-detect a non-autoProcessing account (Business Center completeMandate default
+    // removed) without any configuration.
+    private static bool IsTransientTokenPayload(string payloadJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+            var root = doc.RootElement;
+            return root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("content", out var content)
+                && content.ValueKind == JsonValueKind.Object
+                && content.TryGetProperty("paymentInformation", out _)
+                && !root.TryGetProperty("status", out _);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void EnterTokenReceived(string tokenJwt)
+    {
+        var prettyOptions = new JsonSerializerOptions { WriteIndented = true };
+
+        transientTokenJwt = tokenJwt;
+        transientTokenDecodedJson = tokenJwt;
+
+        var payloadJson = DecodeJwtPayload(tokenJwt);
+        if (payloadJson is not null)
+        {
+            try
+            {
+                using var payloadDoc = JsonDocument.Parse(payloadJson);
+                transientTokenDecodedJson = JsonSerializer.Serialize(payloadDoc.RootElement, prettyOptions);
+            }
+            catch (JsonException)
+            {
+                transientTokenDecodedJson = payloadJson;
+            }
+        }
+
+        Console.WriteLine($"[StoreCheckout] Transient token received (manual mode) — decoded payload:\n{transientTokenDecodedJson}");
+
+        ucReady = false;
+        Phase = CheckoutPhase.TokenReceived;
         StateHasChanged();
     }
 
@@ -449,11 +639,23 @@
             // (status/approvalCode/etc.) instead of the raw encoded token.
             if (root.ValueKind == JsonValueKind.String)
             {
-                var payloadJson = DecodeJwtPayload(root.GetString());
+                var jwt = root.GetString();
+                var payloadJson = DecodeJwtPayload(jwt);
+
+                // With autoProcessing OFF (no Business Center completeMandate default), the v1
+                // SDK's mount() resolves with the TRANSIENT TOKEN itself rather than a processed
+                // result — detect that shape and hand off to the manual follow-on flow instead
+                // of treating it as a completion.
+                if (jwt is not null && payloadJson is not null && IsTransientTokenPayload(payloadJson))
+                {
+                    EnterTokenReceived(jwt);
+                    return;
+                }
+
                 using var payloadDoc = payloadJson is not null ? JsonDocument.Parse(payloadJson) : null;
                 completionResultJson = payloadDoc is not null
                     ? JsonSerializer.Serialize(payloadDoc.RootElement, prettyOptions)
-                    : root.GetString();
+                    : jwt;
             }
             else
             {
@@ -470,6 +672,112 @@
         cartService.DeleteAll();
         Phase = CheckoutPhase.Completed;
         StateHasChanged();
+    }
+
+    // ── Step 3 (manual mode): submit the follow-on /pts/v2/payments with the transient
+    //    token, options resolved from the active UnifiedCheckoutConfiguration ────────────
+
+    private async Task SubmitTokenPayment()
+    {
+        if (string.IsNullOrWhiteSpace(transientTokenJwt) || submittingTokenPayment) return;
+
+        submittingTokenPayment = true;
+        StateHasChanged();
+
+        try
+        {
+            var dto = new UnifiedTokenPaymentDto
+            {
+                ClientReferenceCode = Guid.NewGuid().ToString(),
+                TransientTokenJwt = transientTokenJwt,
+                TotalAmount = FollowOnAmount,
+                Currency = "USD",
+                EnableTokenCreate = FollowOnTokenCreate,
+                ActionTokenTypes = FollowOnActionTokenTypes,
+                BillTo = !IncludeBillTo ? null : new BillTo
+                {
+                    FirstName = b2CCustomer.FirstName,
+                    LastName = b2CCustomer.LastName,
+                    Address1 = b2CCustomer.Address1,
+                    Address2 = b2CCustomer.Address2,
+                    Locality = b2CCustomer.City,
+                    AdministrativeArea = b2CCustomer.AdministrativeArea,
+                    PostalCode = b2CCustomer.PostalCode,
+                    Country = b2CCustomer.Country,
+                    Email = b2CCustomer.Email,
+                    PhoneNumber = b2CCustomer.Phone
+                },
+                ShipTo = !IncludeShipTo ? null : new BillTo
+                {
+                    FirstName = b2CCustomer.ShippingFirstName ?? b2CCustomer.FirstName,
+                    LastName = b2CCustomer.ShippingLastName ?? b2CCustomer.LastName,
+                    Address1 = b2CCustomer.ShippingAddress1 ?? b2CCustomer.Address1,
+                    Address2 = b2CCustomer.ShippingAddress2 ?? b2CCustomer.Address2,
+                    Locality = b2CCustomer.ShippingCity ?? b2CCustomer.City,
+                    AdministrativeArea = b2CCustomer.ShippingAdministrativeArea ?? b2CCustomer.AdministrativeArea,
+                    PostalCode = b2CCustomer.ShippingPostalCode ?? b2CCustomer.PostalCode,
+                    Country = b2CCustomer.ShippingCountry ?? b2CCustomer.Country
+                }
+            };
+
+            sessionTransJson.OriginalTransactionType = CcTransactionTypes.UNIFIED_CHECKOUT_TOKEN_PAYMENT;
+            sessionTransJson.CurrentTransactionType = CcTransactionTypes.UNIFIED_CHECKOUT_TOKEN_PAYMENT;
+
+            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+            string jsonString = JsonSerializer.Serialize(dto, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(jsonString,
+                sessionTransactions, CcTransactionTypes.UNIFIED_CHECKOUT_TOKEN_PAYMENT);
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            // Same embedded-error scan the REST backup path runs — a DECLINED/INVALID_DATA
+            // payment comes back 2XX with the error inside the JSON.
+            var basicErrorInfos = JsonErrorExtractor.ExtractErrorObjects(sessionResponse.TransactionJson?.ToString() ?? string.Empty);
+            bool containsError = basicErrorInfos.Any(e =>
+                AppErrorConfig.ErrorKeywords.Any(k =>
+                    $"{e.Status} {e.Reason} {e.Message} {e.Action}".ToLowerInvariant().Contains(k.ToLowerInvariant())));
+
+            if (containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse);
+
+            completionResultJson = sessionResponse.TransactionJson?
+                .ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "{}";
+
+            Console.WriteLine($"[StoreCheckout] Manual transient-token payment result:\n{completionResultJson}");
+
+            manualCompletion = true;
+            cartService.DeleteAll();
+            Phase = CheckoutPhase.Completed;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+        finally
+        {
+            submittingTokenPayment = false;
+        }
     }
 
     // ── Simple REST API backup path — reuses the existing SALE/AUTH flow, same as the

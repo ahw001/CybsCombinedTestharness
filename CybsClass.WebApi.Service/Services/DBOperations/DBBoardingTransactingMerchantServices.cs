@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.EntityModels;
 
@@ -22,7 +22,7 @@ public static class DBBoardingTransactingMerchantServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingTrans] Create error: {ex.Message}");
+            DbErrorHandler.Log(nameof(CreateAsync), ex);
             return null;
         }
     }
@@ -41,7 +41,7 @@ public static class DBBoardingTransactingMerchantServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingTrans] GetAll error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetAllAsync), ex);
             return new List<BoardingTransactingMerchant>();
         }
     }
@@ -59,7 +59,7 @@ public static class DBBoardingTransactingMerchantServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingTrans] GetByTransactingOrgId error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetByTransactingOrgIdAsync), ex);
             return null;
         }
     }
@@ -78,7 +78,7 @@ public static class DBBoardingTransactingMerchantServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingTrans] GetByOrg error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetByOrgIdAsync), ex);
             return new List<BoardingTransactingMerchant>();
         }
     }
@@ -96,7 +96,7 @@ public static class DBBoardingTransactingMerchantServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingTrans] GetById error: {ex.Message}");
+            DbErrorHandler.Log(nameof(GetByIdAsync), ex);
             return null;
         }
     }
@@ -119,7 +119,7 @@ public static class DBBoardingTransactingMerchantServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingTrans] Update error: {ex.Message}");
+            DbErrorHandler.Log(nameof(UpdateAsync), ex);
             return null;
         }
     }
@@ -136,7 +136,7 @@ public static class DBBoardingTransactingMerchantServices
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DBBoardingTrans] Delete error: {ex.Message}");
+            DbErrorHandler.Log(nameof(DeleteAsync), ex);
             return false;
         }
     }

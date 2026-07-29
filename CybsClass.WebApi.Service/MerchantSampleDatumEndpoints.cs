@@ -1,5 +1,4 @@
-using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using CybsClass.EntityModels;
 using CybsClass.WebApi.Service.Services.DBOperations;
 
@@ -13,43 +12,36 @@ public static class MerchantSampleDatumEndpoints
 
         group.MapGet("/", async () =>
         {
-            var merchant = await DBMerchantSampleDatumServices.GetRandomMerchantSampleDatum();
-            if (merchant == null) return Results.NotFound();
-            return Results.Json(merchant);
+            return (await DBMerchantSampleDatumServices.GetRandomMerchantSampleDatum())
+                .ToOkOrNotFound("No MerchantSampleDatum rows available.");
         })
         .WithName("GetRandomMerchant")
-        .Produces<MerchantSampleDatum>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status404NotFound);
+        .Produces<MerchantSampleDatum>(StatusCodes.Status200OK);
 
-        group.MapGet("/{samplemerchantid}", async Task<Results<Ok<MerchantSampleDatum>, NotFound>> (int samplemerchantid) =>
+        group.MapGet("/{samplemerchantid}", async (int samplemerchantid) =>
         {
-            var merchant = await DBMerchantSampleDatumServices.GetMerchantSampleDatumById(samplemerchantid);
-            return merchant is not null ? TypedResults.Ok(merchant) : TypedResults.NotFound();
+            return (await DBMerchantSampleDatumServices.GetMerchantSampleDatumById(samplemerchantid))
+                .ToOkOrNotFound($"No MerchantSampleDatum found with id {samplemerchantid}.");
         })
         .WithName("GetMerchantSampleDatumById");
 
-        group.MapPut("/{id}", async Task<Results<Ok, NotFound>> (int samplemerchantid, MerchantSampleDatum merchantSampleDatum) =>
+        group.MapPut("/{samplemerchantid}", async (int samplemerchantid, MerchantSampleDatum merchantSampleDatum) =>
         {
-            var affected = await DBMerchantSampleDatumServices.UpdateMerchantSampleDatum(samplemerchantid, merchantSampleDatum);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBMerchantSampleDatumServices.UpdateMerchantSampleDatum(samplemerchantid, merchantSampleDatum))
+                .ToOkOrNotFound($"No MerchantSampleDatum found with id {samplemerchantid} to update.");
         })
         .WithName("UpdateMerchantSampleDatum");
 
         group.MapPost("/", async (MerchantSampleDatum merchantSampleDatum) =>
         {
-            var created = await DBMerchantSampleDatumServices.CreateMerchantSampleDatum(merchantSampleDatum);
-            if (created is null)
-            {
-                return Results.Problem("Failed to create merchant sample datum.");
-            }
-            return Results.Created($"/api/MerchantSampleDatum/{created.SampleMerchantId}", created);
+            return (await DBMerchantSampleDatumServices.CreateMerchantSampleDatum(merchantSampleDatum)).ToOkOrError();
         })
         .WithName("CreateMerchantSampleDatum");
 
-        group.MapDelete("/{id}", async Task<Results<Ok, NotFound>> (int samplemerchantid) =>
+        group.MapDelete("/{samplemerchantid}", async (int samplemerchantid) =>
         {
-            var affected = await DBMerchantSampleDatumServices.DeleteMerchantSampleDatum(samplemerchantid);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBMerchantSampleDatumServices.DeleteMerchantSampleDatum(samplemerchantid))
+                .ToOkOrNotFound($"No MerchantSampleDatum found with id {samplemerchantid} to delete.");
         })
         .WithName("DeleteMerchantSampleDatum");
     }

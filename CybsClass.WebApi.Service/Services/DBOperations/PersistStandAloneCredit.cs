@@ -12,12 +12,9 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class PersistStandAloneCredit
     {
-        private static B2cCustomer b2CCustomer = new B2cCustomer();
-        private static Dictionary<string, object> dbResults = new Dictionary<string, object>();
-
         public static async Task<Dictionary<string, object>> InsertStandAloneCredit(B2cCustomerDto b2cCustomerDto, JsonNode creditTransNode)
         {
-            dbResults = new();
+            Dictionary<string, object> dbResults = new();
 
             Console.WriteLine("Inserting stand alone credit data ...");
 
@@ -44,20 +41,12 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 Console.WriteLine($"StandAloneCredit State: {entity.State}, StandAloneCreditId: {s.StandAloneCreditCardId}");
                 dbResults.Add("StandAloneCreditId", s.StandAloneCreditCardId);
 
-
-                //Change to JSON Node then ToString()
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                string jsonString = JsonSerializer.Serialize(b2CCustomer, options);
-                JsonNode jsonLinks = JsonNode.Parse(jsonString)!;
-
                 return dbResults;
             }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("Exception", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log(nameof(InsertStandAloneCredit), ex);
+                return new Dictionary<string, object> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
         }
     }

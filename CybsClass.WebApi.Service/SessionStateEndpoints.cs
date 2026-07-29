@@ -69,7 +69,10 @@ namespace CybsClass.WebApi.Service
             group.MapGet("/sessionretrieve/{id:guid}", async (Guid id) =>
             {
                 var sessionStateDto = await PersistSessionState.GetSessionStateByIdAsync(id);
-                if (sessionStateDto == null) return Results.NotFound();
+                if (sessionStateDto == null)
+                {
+                    return Results.Json(DbErrorHandler.BuildNotFound($"No stored session found for id {id}."));
+                }
                 return Results.Json(sessionStateDto);
             }).Produces<JsonObject>().WithName("GetSessionState");
 

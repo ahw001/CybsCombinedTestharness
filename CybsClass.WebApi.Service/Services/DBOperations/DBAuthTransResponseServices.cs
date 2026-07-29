@@ -8,11 +8,12 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public class DBAuthTransResponseServices
     {
-        public static async Task<int> GetAuthTransResponseCountAsync()
-        {
-            using CybsDbContext db = new();
-            return await db.AuthTransResponses.CountAsync();
-        }
+        public static Task<DbResult<int>> GetAuthTransResponseCountAsync() =>
+            DbErrorHandler.GuardAsync(nameof(GetAuthTransResponseCountAsync), async () =>
+            {
+                using CybsDbContext db = new();
+                return await db.AuthTransResponses.CountAsync();
+            });
         public static async Task<List<AuthTransResponseDto>> GetAuthTransResponses()
         {
             try
@@ -25,10 +26,10 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error getting full list of Payment Cards: {ex.ToString()}");
+                DbErrorHandler.Log(nameof(GetAuthTransResponses), ex);
                 var authTransResponses = new List<AuthTransResponseDto>();
                 AuthTransResponseDto authTransResponseDto = new AuthTransResponseDto();
-                authTransResponseDto.Error = ex.ToString();
+                authTransResponseDto.Error = DbErrorHandler.BuildError(ex, nameof(GetAuthTransResponses));
                 authTransResponses.Add(authTransResponseDto);
                 return authTransResponses;
             }
@@ -53,28 +54,19 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error Auth Trans Response for ID: {ex.ToString()}");
+                DbErrorHandler.Log(nameof(GetAuthTransResponseByUsingId), ex);
                 var authTransResponseDto = new AuthTransResponseDto();
-                authTransResponseDto.Error = ex.ToString();
+                authTransResponseDto.Error = DbErrorHandler.BuildError(ex, nameof(GetAuthTransResponseByUsingId));
                 return authTransResponseDto;
             }
         }
-        public static async Task<int> CreateAuthTransResponse(AuthTransResponseDto authTransResponseDto)
-        {
-            try
+        public static Task<DbResult<int>> CreateAuthTransResponse(AuthTransResponseDto authTransResponseDto) =>
+            DbErrorHandler.GuardAsync(nameof(CreateAuthTransResponse), async () =>
             {
                 AuthTransResponse authTransResponse = AuthTransResponseMapper.Map(authTransResponseDto)!;
                 using CybsDbContext db = new();
                 db.AuthTransResponses.Add(authTransResponse);
-                var affected = await db.SaveChangesAsync();
-                return affected;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error Creating Auth Trans Reponse - {ex.ToString()}");
-                return 0;
-            }
-
-        }
+                return await db.SaveChangesAsync();
+            });
     }
 }

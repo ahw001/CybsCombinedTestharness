@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http.HttpResults;
 using CybsClass.EntityModels;
 using CybsClass.Cybersource.Models.DTOs;
@@ -13,7 +13,7 @@ public static class IndividualTransactionEndpoints
 
         group.MapGet("/count", async () =>
         {
-            return Results.Ok(await DBIndividualTransactionServices.GetIndividualTransactionCountAsync());
+            return (await DBIndividualTransactionServices.GetIndividualTransactionCountAsync()).ToOkOrError();
         })
         .WithName("GetIndividualTransactionCount");
 
@@ -25,21 +25,19 @@ public static class IndividualTransactionEndpoints
             {
                 return Results.Ok(individualTransactionDtos);
             }
-            else
-            {
-                return Results.NotFound();
-            }
+
+            return Results.Json(DbErrorHandler.BuildNotFound("No Individual Transactions found."));
         })
         .WithName("GetAllIndividualTransactions");
 
-        group.MapGet("/{id}", async Task<Results<Ok<IndividualTransactionDto>, NotFound>> (int id) =>
+        group.MapGet("/{id}", async (int id) =>
         {
             var individualTransactionDto = await DBIndividualTransactionServices.GetIndividualTransactionByUsingId(id);
             if (individualTransactionDto == null)
             {
-                return TypedResults.NotFound();
+                return Results.Json(DbErrorHandler.BuildNotFound($"No Individual Transaction found with id {id}."));
             }
-            return TypedResults.Ok(individualTransactionDto);
+            return Results.Ok(individualTransactionDto);
         })
         .WithName("GetIndividualTransactionById");
 

@@ -277,43 +277,51 @@ public static class WebApplicationExtensions
 
         app.MapGet("/api/getorders/{id:int}", async ([FromRoute] int id, CybsDbContext db) =>
         {
-            IQueryable<Order>? orders = db.Orders?.Where(o => o.B2cCustomerId == id);
+            var result = await DbErrorHandler.GuardAsync("QueryingOrders", async () =>
+                await db.Orders.Where(o => o.B2cCustomerId == id).ToListAsync());
 
-            return orders != null ? Results.Ok(await orders.ToListAsync()) : Results.NotFound();
+            return result.ToOkOrError();
         })
         .WithName("QueryingOrders");
 
 
-        app.MapGet("api/samplecards", (
+        app.MapGet("api/samplecards", async (
             [FromServices] CybsDbContext db) =>
-            Results.Json(db.PaymentCardSampleData.Where(c => c.NtScenario != "SYSTEM_ERROR")))
+        {
+            var result = await DbErrorHandler.GuardAsync("GetSampleCards", async () =>
+                await db.PaymentCardSampleData.Where(c => c.NtScenario != "SYSTEM_ERROR").ToListAsync());
+
+            return result.ToOkOrError();
+        })
         .WithName("GetSampleCards")
         .Produces<PaymentCardSampleDatum[]>(StatusCodes.Status200OK);
 
 
         app.MapGet("api/getcustomerjson", async (
             [FromServices] CybsDbContext db) =>
-            Results.Json(await db.B2cCustomers.ToListAsync()))
+        {
+            var result = await DbErrorHandler.GuardAsync("GetCustomerJson", async () =>
+                await db.B2cCustomers.ToListAsync());
+
+            return result.ToOkOrError();
+        })
         .WithName("GetCustomerJson")
         .Produces<List<B2cCustomer>>(StatusCodes.Status200OK);
 
         app.MapGet("api/customercount", async () =>
         {
-            return Results.Ok(await DBCustomerServices.GetCustomerCountAsync());
+            return (await DBCustomerServices.GetCustomerCountAsync()).ToOkOrError();
         });
 
         app.MapGet("api/getcustomers", async () =>
         {
-            return Results.Ok(await DBCustomerServices.GetB2CCustomers());
+            return (await DBCustomerServices.GetB2CCustomers()).ToOkOrError();
         });
 
-        app.MapGet("api/paymentcard/{id:int}", async Task<Results<Ok<PaymentCardInfo>, NotFound>> ([FromRoute] int id, CybsDbContext db) =>
+        app.MapGet("api/paymentcard/{id:int}", async ([FromRoute] int id) =>
         {
-            return await db.PaymentCardInfos.AsNoTracking()
-                .FirstOrDefaultAsync(model => model.PaymentCardId == id)
-                is PaymentCardInfo model
-                    ? TypedResults.Ok(model)
-                    : TypedResults.NotFound();
+            return (await DBPaymentCardServices.GetPaymentCardInfoEntityByIdAsync(id))
+                .ToOkOrNotFound($"No PaymentCardInfo found with id {id}.");
         })
         .WithName("GetPaymentCardInfoById");
 
@@ -466,14 +474,32 @@ public static class WebApplicationExtensions
                     await Console.Out.WriteLineAsync($"DB Results Key: " + result.Key + " " + "DB Results Value: " + result.Value.ToString());
                 }
                 */
-                string payCardId = (string)dbResults["PaymentCardId"];
-                int orderId = (int)dbResults["OrderId"];
-                int b2cCustomerId = (int)dbResults["B2cCustomerId"];
+                // The payment itself already succeeded at this point, so a persistence failure
+                // must not turn into a 500 — report it alongside the CyberSource response.
+                // Deliberately NOT named "error": the client's JsonErrorExtractor treats an
+                // "error" property as a failed transaction, which this is not.
+                if (dbResults.TryGetValue(DbErrorHandler.ErrorKey, out object? persistError))
+                {
+                    jsonNode["dbPersistError"] = persistError?.ToString();
+                    await Console.Out.WriteLineAsync($"-------------- DB PERSIST FAILED: {persistError}");
+                }
+                else
+                {
+                    if (dbResults.TryGetValue("B2cCustomerId", out object? b2cCustomerId))
+                    {
+                        jsonNode["B2cCustomerId"] = Convert.ToInt32(b2cCustomerId);
+                    }
 
-                jsonNode["B2cCustomerId"] = b2cCustomerId;
-                jsonNode["PaymentCardId"] = payCardId.ToString();
-                jsonNode["OrderId"] = orderId.ToString();
+                    if (dbResults.TryGetValue("PaymentCardId", out object? payCardId))
+                    {
+                        jsonNode["PaymentCardId"] = payCardId?.ToString();
+                    }
 
+                    if (dbResults.TryGetValue("OrderId", out object? orderId))
+                    {
+                        jsonNode["OrderId"] = orderId?.ToString();
+                    }
+                }
             }
 
             return Results.Json(jsonNode);
@@ -515,9 +541,17 @@ public static class WebApplicationExtensions
                     }
                     */
 
-                    string payCardId = (string)dbResults["PaymentCardId"];
+                    // The token already exists at CyberSource — report a persistence failure
+                    // alongside the response rather than throwing out of the handler.
+                    if (dbResults.TryGetValue(DbErrorHandler.ErrorKey, out string? persistError))
+                    {
+                        jsonNode["dbPersistError"] = persistError;
+                    }
+                    else if (dbResults.TryGetValue("PaymentCardId", out string? payCardId))
+                    {
+                        jsonNode["PaymentCardId"] = payCardId;
+                    }
 
-                    jsonNode["PaymentCardId"] = payCardId;
                     return Results.Json(jsonNode);
                 }
                 catch (Exception ex)
@@ -578,11 +612,14 @@ public static class WebApplicationExtensions
                         await Console.Out.WriteLineAsync($"DB Results Key: " + result.Key + " " + "DB Results Value: " + result.Value.ToString());
                     }
                     */
-                    string? standAloneCreditID = Convert.ToString(dbResults["StandAloneCreditId"]);
-                    //int orderId = (int)dbResults["OrderId"];
-
-
-                    jsonNode["StandAloneCreditId"] = standAloneCreditID;
+                    if (dbResults.TryGetValue(DbErrorHandler.ErrorKey, out object? persistError))
+                    {
+                        jsonNode["dbPersistError"] = persistError?.ToString();
+                    }
+                    else if (dbResults.TryGetValue("StandAloneCreditId", out object? standAloneCreditID))
+                    {
+                        jsonNode["StandAloneCreditId"] = Convert.ToString(standAloneCreditID);
+                    }
 
                 }
             }

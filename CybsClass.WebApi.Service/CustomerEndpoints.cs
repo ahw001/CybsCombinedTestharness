@@ -1,5 +1,4 @@
-using Microsoft.AspNetCore.Http.HttpResults;
-using CybsClass.EntityModels;
+﻿using CybsClass.EntityModels;
 using CybsClass.WebApi.Service.Services.DBOperations;
 
 namespace CybsClass.WebApi.Service;
@@ -12,45 +11,40 @@ public static class B2cCustomers
 
         group.MapGet("/", async () =>
         {
-            return await DBCustomerServices.GetB2CCustomers();
+            return (await DBCustomerServices.GetB2CCustomers()).ToOkOrError();
         })
         .WithName("GetAllB2cCustomers");
 
         group.MapGet("/paging/{pageIndex}/{pageSize}", async (int pageIndex, int pageSize) =>
         {
-            return await DBCustomerServices.GetB2cCustomerPagedAsync(pageIndex, pageSize);
+            return (await DBCustomerServices.GetB2cCustomerPagedAsync(pageIndex, pageSize)).ToOkOrError();
         })
         .WithName("GetPagingCustomers");
 
-        group.MapGet("/{id}", async Task<Results<Ok<B2cCustomer>, NotFound>> (int b2ccustomerid) =>
+        group.MapGet("/{b2ccustomerid}", async (int b2ccustomerid) =>
         {
-            var customer = await DBCustomerServices.GetB2cCustomerByIdAsync(b2ccustomerid);
-            return customer is not null ? TypedResults.Ok(customer) : TypedResults.NotFound();
+            return (await DBCustomerServices.GetB2cCustomerByIdAsync(b2ccustomerid))
+                .ToOkOrNotFound($"No B2cCustomer found with id {b2ccustomerid}.");
         })
         .WithName("GetB2cCustomerById");
 
-        group.MapPut("/{id}", async Task<Results<Ok, NotFound>> (int b2ccustomerid, B2cCustomer b2cCustomer) =>
+        group.MapPut("/{b2ccustomerid}", async (int b2ccustomerid, B2cCustomer b2cCustomer) =>
         {
-            var affected = await DBCustomerServices.UpdateB2cCustomer(b2ccustomerid, b2cCustomer);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBCustomerServices.UpdateB2cCustomer(b2ccustomerid, b2cCustomer))
+                .ToOkOrNotFound($"No B2cCustomer found with id {b2ccustomerid} to update.");
         })
         .WithName("UpdateB2cCustomer");
 
         group.MapPost("/", async (B2cCustomer b2cCustomer) =>
         {
-            var created = await DBCustomerServices.CreateB2cCustomerSimple(b2cCustomer);
-            if (created is null)
-            {
-                return Results.Problem("Failed to create customer.");
-            }
-            return Results.Created($"/api/B2cCustomer/{created.B2cCustomerId}", created);
+            return (await DBCustomerServices.CreateB2cCustomerSimple(b2cCustomer)).ToOkOrError();
         })
         .WithName("CreateB2cCustomer");
 
-        group.MapDelete("/{id}", async Task<Results<Ok, NotFound>> (int b2ccustomerid) =>
+        group.MapDelete("/{b2ccustomerid}", async (int b2ccustomerid) =>
         {
-            var affected = await DBCustomerServices.DeleteB2cCustomer(b2ccustomerid);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBCustomerServices.DeleteB2cCustomer(b2ccustomerid))
+                .ToOkOrNotFound($"No B2cCustomer found with id {b2ccustomerid} to delete.");
         })
         .WithName("DeleteB2cCustomer");
     }

@@ -7,11 +7,9 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 {
     public static class PersistShippingInstAddress
     {
-        private static Dictionary<string, string> dbResults = new Dictionary<string, string>();
-
         public static async Task<Dictionary<string, string>> InsertShippingInstAddress(RootToken rootToken, string customerInstId)
         {
-            dbResults = new();
+            Dictionary<string, string> dbResults = new();
 
             Console.WriteLine("Inserting shipping instrument ...");
             try
@@ -44,16 +42,14 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("Exception", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log($"{nameof(InsertShippingInstAddress)}(RootToken)", ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
         }
 
         public static async Task<Dictionary<string, string>> InsertShippingInstAddress(ZeroAuthRootToken zeroAuthRootToken)
         {
-            dbResults = new();
+            Dictionary<string, string> dbResults = new();
 
             Console.WriteLine("Inserting shipping instrument ...");
             try
@@ -77,10 +73,8 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
             }
             catch (Exception ex)
             {
-                dbResults = new();
-                dbResults.Add("Exception", ex.Message);
-                Console.WriteLine($"Exception: {ex.Message}");
-                return dbResults;
+                DbErrorHandler.Log($"{nameof(InsertShippingInstAddress)}(ZeroAuthRootToken)", ex);
+                return new Dictionary<string, string> { [DbErrorHandler.ErrorKey] = ex.GetBaseException().Message };
             }
         }
     }

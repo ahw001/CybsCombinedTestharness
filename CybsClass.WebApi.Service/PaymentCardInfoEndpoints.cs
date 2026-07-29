@@ -1,7 +1,7 @@
-using Microsoft.AspNetCore.Http.HttpResults;
-using CybsClass.EntityModels;
+﻿using CybsClass.EntityModels;
 using Microsoft.AspNetCore.Mvc;
 using CybsClass.WebApi.Service.Services.DBOperations;
+using ErrorObject = CybsClass.Cybersource.Models.BaseData.ErrorObject;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.Cybersource.Models.Mappers;
 namespace CybsClass.WebApi.Service;
@@ -15,61 +15,79 @@ public static class PaymentCardInfoEndpoints
 
         group.MapGet("/count", async () =>
         {
-            return Results.Ok(await DBPaymentCardServices.GetPaymentCardCountAsync());
+            return (await DBPaymentCardServices.GetPaymentCardCountAsync()).ToOkOrError();
         })
         .WithName("GetPaymentCardCount");
 
         group.MapGet("/", async () =>
         {
-            return await DBPaymentCardServices.GetAllPaymentCardInfoEntities();
+            return (await DBPaymentCardServices.GetAllPaymentCardInfoEntities()).ToOkOrError();
         })
         .WithName("GetAllPaymentCardInfos");
 
-        group.MapGet("/{paymentcardid:int}", async Task<Results<Ok<PaymentCardDto>, NotFound>> ([FromRoute] int paymentcardid) =>
+        group.MapGet("/{paymentcardid:int}", async ([FromRoute] int paymentcardid) =>
         {
             var paymentCardDto = await DBPaymentCardServices.GetPaymentCardInfoByUsingId(paymentcardid);
             if (paymentCardDto == null)
             {
-                return TypedResults.NotFound();
+                return Results.Json(DbErrorHandler.BuildNotFound($"No PaymentCardInfo found with id {paymentcardid}."));
             }
-            return TypedResults.Ok(paymentCardDto);
+            return Results.Ok(paymentCardDto);
         })
         .WithName("GetPaymentCardInfoByUsingId");
 
 
         group.MapGet("/customer/{b2ccustomerid:int}", async ([FromRoute] int b2ccustomerid) =>
         {
-            var paymentCardInfos = await DBCustomerServices.GetB2CCustomerPaymentCards(b2ccustomerid);
+            var result = await DBCustomerServices.GetB2CCustomerPaymentCards(b2ccustomerid);
 
-            if (paymentCardInfos == null || !paymentCardInfos.Any())
+            if (!result.Ok)
             {
-                return Results.NotFound();
+                return Results.Json(result.Error);
             }
-            List<PaymentCardDto> paymentCardDtos = new List<PaymentCardDto>();
-            paymentCardDtos = PaymentCardMapper.Map(paymentCardInfos);
+
+            if (result.Value is null || result.Value.Count == 0)
+            {
+                return Results.Json(DbErrorHandler.BuildNotFound($"No payment cards found for customer {b2ccustomerid}."));
+            }
+
+            List<PaymentCardDto> paymentCardDtos = PaymentCardMapper.Map(result.Value);
             return Results.Ok(paymentCardDtos);
         })
         .WithName("GetPaymentCardsByCustomer");
 
 
-        group.MapPut("/{id}", async Task<Results<Ok, NotFound>> ([FromRoute] int id, PaymentCardDto paymentCardDto) =>
+        group.MapPut("/{id}", async ([FromRoute] int id, PaymentCardDto paymentCardDto) =>
         {
-            var affected = await DBPaymentCardServices.UpdatePaymentCardInfo(id, paymentCardDto);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBPaymentCardServices.UpdatePaymentCardInfo(id, paymentCardDto))
+                .ToOkOrNotFound($"No PaymentCardInfo found with id {id} to update.");
         })
         .WithName("UpdatePaymentCardInfo");
 
         group.MapPost("/", async (PaymentCardDto paymentCardDto) =>
         {
             var dbResults = await DBPaymentCardServices.CreatePaymentCardInfo(paymentCardDto);
-            return Results.Created("New PaymentCard ID:", dbResults.LastOrDefault().Value);
+
+            if (dbResults.TryGetValue(DbErrorHandler.ErrorKey, out string? error))
+            {
+                return Results.Json(new ErrorObject
+                {
+                    Error = "DATABASE_ERROR",
+                    Message = error,
+                    Reason = "Database Error",
+                    Action = "Payment card was not created. See server logs."
+                });
+            }
+
+            dbResults.TryGetValue("PaymentCardId", out string? newId);
+            return Results.Ok(newId);
         })
         .WithName("CreatePaymentCardInfo");
 
-        group.MapDelete("/{id}", async Task<Results<Ok, NotFound>> (int paymentcardid) =>
+        group.MapDelete("/{paymentcardid}", async (int paymentcardid) =>
         {
-            var affected = await DBPaymentCardServices.DeletePaymentCardInfo(paymentcardid);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            return (await DBPaymentCardServices.DeletePaymentCardInfo(paymentcardid))
+                .ToOkOrNotFound($"No PaymentCardInfo found with id {paymentcardid} to delete.");
         })
         .WithName("DeletePaymentCardInfo");
     }
