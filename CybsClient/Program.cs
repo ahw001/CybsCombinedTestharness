@@ -543,6 +543,35 @@ app.MapGet("/client-ip", (HttpContext http) =>
     )
 );
 
+// Diagnostic-only: exposes the values that drive the 3-D Secure step-up round-trip so the
+// post-deploy manual test can be completed without running a full transaction.
+// Confirms ForwardedHeaders are working (baseUri must be https://) and that the ReturnUrl
+// CyberSource will callback matches the public host.
+app.MapGet("/api/diag/stepup-config", (HttpContext http) =>
+{
+    var request = http.Request;
+    var scheme   = request.Scheme;
+    var host     = request.Host.Value;
+    var pathBase = request.PathBase.HasValue ? request.PathBase.Value!.TrimEnd('/') : string.Empty;
+    var baseUri  = $"{scheme}://{host}{pathBase}/";
+    var returnUrl = $"{baseUri}stepup-callback";
+
+    return Results.Ok(new
+    {
+        baseUri,
+        returnUrl,
+        scheme,
+        host,
+        forwardedProto  = request.Headers["X-Forwarded-Proto"].ToString(),
+        forwardedHost   = request.Headers["X-Forwarded-Host"].ToString(),
+        corsAllowedOrigins = allowedOrigins,
+        extraCorsOrigin = Environment.GetEnvironmentVariable("EXTRA_CORS_ORIGIN"),
+        note = scheme == "https"
+            ? "OK — ForwardedHeaders are working; ReturnUrl will be the public https origin."
+            : "WARNING — scheme is not https. Check UseForwardedHeaders placement in Program.cs."
+    });
+});
+
 // ============================================================================
 // Endpoints — server API (verbatim from CybsClass.WebApi.Service Program.cs;
 // the server's inline HTML home page is remapped to /server-home inside MapGets()
