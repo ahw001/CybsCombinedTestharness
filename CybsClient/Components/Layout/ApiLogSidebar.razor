@@ -55,7 +55,7 @@
         @{
             var allEntries = ApiLog.Entries;
             var visible = (_errorsOnly
-                    ? allEntries.Where(e => e.IsError)
+                    ? allEntries.Where(e => e.HasAnyError)
                     : allEntries)
                 .Reverse()
                 .ToList();
@@ -74,6 +74,17 @@
                 {
                     var collapseId = $"apiLogC_{entry.Id:N}";
                     var headingId = $"apiLogH_{entry.Id:N}";
+                    // Display rules: when the server made CyberSource call(s) and nothing errored,
+                    // the entry represents the server<->CyberSource hop — header and body show the
+                    // exchanges only. Client<->server bodies appear when there is no CyberSource
+                    // call (pure client/server traffic) or on any error condition (so the full
+                    // picture is available for diagnosis).
+                    var hasExchanges = entry.CybsExchanges is { Count: > 0 };
+                    var showClientHop = !hasExchanges || entry.HasAnyError;
+                    var firstExchange = hasExchanges ? entry.CybsExchanges![0] : null;
+                    var headerMethod = firstExchange is not null && !entry.HasAnyError ? firstExchange.HttpMethod : entry.Method;
+                    var headerUrl = firstExchange is not null && !entry.HasAnyError ? firstExchange.Url : entry.Url;
+                    var headerStatus = firstExchange is not null && !entry.HasAnyError ? firstExchange.HttpStatusCode : entry.StatusCode;
                     <div class="accordion-item border-bottom">
                         <h2 class="accordion-header" id="@headingId">
                             <button class="accordion-button collapsed py-2 px-3 small"
@@ -83,14 +94,22 @@
                                     aria-expanded="false"
                                     aria-controls="@collapseId">
                                 <span class="d-flex align-items-center gap-1 flex-wrap w-100">
-                                    <span class="badge bg-dark me-1">@entry.Method</span>
+                                    @if (firstExchange is not null && !entry.HasAnyError)
+                                    {
+                                        <span class="badge bg-primary me-1" title="Server-to-CyberSource exchange">CYBS</span>
+                                    }
+                                    <span class="badge bg-dark me-1">@headerMethod</span>
                                     <span class="text-truncate flex-grow-1 me-1"
                                           style="max-width:180px;"
-                                          title="@entry.Url">@entry.Url</span>
-                                    @if (entry.StatusCode.HasValue)
+                                          title="@headerUrl">@StripCybsHost(headerUrl)</span>
+                                    @if (hasExchanges && entry.CybsExchanges!.Count > 1)
                                     {
-                                        <span class="badge @(entry.IsError ? "bg-danger" : "bg-success") me-1">
-                                            @entry.StatusCode
+                                        <span class="badge bg-secondary me-1">+@(entry.CybsExchanges!.Count - 1)</span>
+                                    }
+                                    @if (headerStatus.HasValue)
+                                    {
+                                        <span class="badge @(entry.HasAnyError ? "bg-danger" : "bg-success") me-1">
+                                            @headerStatus
                                         </span>
                                     }
                                     else if (entry.Kind == ApiLogKind.Error)
@@ -117,8 +136,48 @@
                                     </div>
                                 }
 
-                                @if (entry.CybsTargetUrls is { Count: > 0 })
+                                @if (hasExchanges)
                                 {
+                                    @foreach (var exchange in entry.CybsExchanges!)
+                                    {
+                                        var exchangeError = exchange.IsError || exchange.FaultMessage is not null;
+                                        <div class="border rounded mb-2 p-2 @(exchangeError ? "border-danger" : "")">
+                                            <p class="mb-1 small fw-semibold text-primary text-truncate" title="@exchange.Url">
+                                                <i class="bi bi-arrow-right-short"></i>@exchange.HttpMethod @exchange.Url
+                                                @if (exchange.HttpStatusCode.HasValue)
+                                                {
+                                                    <span class="badge @(exchangeError ? "bg-danger" : "bg-success") ms-1">@exchange.HttpStatusCode</span>
+                                                }
+                                            </p>
+                                            @if (exchange.FaultMessage is not null)
+                                            {
+                                                <div class="alert alert-danger py-1 px-2 small mb-2">
+                                                    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                                    @exchange.FaultMessage
+                                                </div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(exchange.RequestJson))
+                                            {
+                                                <p class="mb-1 small fw-semibold text-muted">CyberSource Request</p>
+                                                <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@JsonLogFormatter.DeepPretty(exchange.RequestJson)</pre>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(exchange.ResponseJson))
+                                            {
+                                                <p class="mb-1 small fw-semibold @(exchangeError ? "text-danger" : "text-muted")">
+                                                    CyberSource Response @(exchangeError ? "(error)" : "")
+                                                </p>
+                                                <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@JsonLogFormatter.DeepPretty(exchange.ResponseJson)</pre>
+                                            }
+                                            else
+                                            {
+                                                <p class="mb-1 small text-muted fst-italic">Response: (not captured)</p>
+                                            }
+                                        </div>
+                                    }
+                                }
+                                else if (entry.CybsTargetUrls is { Count: > 0 })
+                                {
+                                    @* Fallback only — exchanges normally supersede the bare URL list. *@
                                     <p class="mb-1 small fw-semibold text-muted">CyberSource</p>
                                     <ul class="list-unstyled mb-2 small">
                                         @foreach (var cybsUrl in entry.CybsTargetUrls)
@@ -130,24 +189,28 @@
                                     </ul>
                                 }
 
-                                @if (!string.IsNullOrWhiteSpace(entry.RequestJson))
+                                @if (showClientHop)
                                 {
-                                    <p class="mb-1 small fw-semibold text-muted">Request</p>
-                                    <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@TryPrettyPrint(entry.RequestJson)</pre>
-                                }
+                                    @if (!string.IsNullOrWhiteSpace(entry.RequestJson))
+                                    {
+                                        <p class="mb-1 small fw-semibold text-muted">Request</p>
+                                        <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@JsonLogFormatter.DeepPretty(entry.RequestJson)</pre>
+                                    }
 
-                                @if (!string.IsNullOrWhiteSpace(entry.ResponseJson))
-                                {
-                                    <p class="mb-1 small fw-semibold @(entry.IsError ? "text-danger" : "text-muted")">
-                                        Response @(entry.IsError ? "(error)" : "")
-                                    </p>
-                                    <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@TryPrettyPrint(entry.ResponseJson)</pre>
-                                }
+                                    @if (!string.IsNullOrWhiteSpace(entry.ResponseJson))
+                                    {
+                                        <p class="mb-1 small fw-semibold @(entry.HasAnyError ? "text-danger" : "text-muted")">
+                                            Response @(entry.HasAnyError ? "(error)" : "")
+                                        </p>
+                                        <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@JsonLogFormatter.DeepPretty(hasExchanges ? StripCybersourceJson(entry.ResponseJson!) : entry.ResponseJson)</pre>
+                                    }
 
-                                @if (!string.IsNullOrWhiteSpace(entry.CybersourceJson))
-                                {
-                                    <p class="mb-1 small fw-semibold text-primary">Raw CyberSource JSON</p>
-                                    <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@TryPrettyPrint(entry.CybersourceJson)</pre>
+                                    @if (!hasExchanges && !string.IsNullOrWhiteSpace(entry.CybersourceJson))
+                                    {
+                                        @* Fallback only — with exchanges present this raw body is already shown decrypted. *@
+                                        <p class="mb-1 small fw-semibold text-primary">Raw CyberSource JSON</p>
+                                        <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@JsonLogFormatter.DeepPretty(entry.CybersourceJson)</pre>
+                                    }
                                 }
 
                             </div>
@@ -162,7 +225,7 @@
 @code {
     private bool _errorsOnly;
 
-    private bool HasErrors => ApiLog.Entries.Any(e => e.IsError);
+    private bool HasErrors => ApiLog.Entries.Any(e => e.HasAnyError);
 
     protected override void OnInitialized()
     {
@@ -176,23 +239,45 @@
         ApiLog.OnChange -= OnApiLogChanged;
     }
 
-    private static readonly JsonSerializerOptions _prettyPrintOptions = new()
+    // Display-only strip of the "cybersourceJson" duplicate (top-level or nested under
+    // "error" — both shapes exist on the wire). Called only when the entry has captured
+    // exchanges, because the exchange panel above the Response body already shows that
+    // exact CyberSource body decrypted and deep-prettified. When no exchange was captured
+    // the field is NOT stripped — it is then the only view of the CyberSource response.
+    // The wire body itself and the diagnostics that read the field (ApiResult.Fail,
+    // ApiLogDelegatingHandler) are untouched.
+    private static string StripCybersourceJson(string responseJson)
     {
-        WriteIndented = true,
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-    };
-
-    private static string TryPrettyPrint(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return string.Empty;
         try
         {
-            var node = JsonNode.Parse(json);
-            return node?.ToJsonString(_prettyPrintOptions) ?? json;
+            if (System.Text.Json.Nodes.JsonNode.Parse(responseJson) is System.Text.Json.Nodes.JsonObject obj)
+            {
+                var removed = obj.Remove("cybersourceJson");
+                if (obj["error"] is System.Text.Json.Nodes.JsonObject errObj)
+                {
+                    removed |= errObj.Remove("cybersourceJson");
+                }
+                if (removed)
+                {
+                    return obj.ToJsonString();
+                }
+            }
         }
-        catch
+        catch (System.Text.Json.JsonException)
         {
-            return json;
+            // Not JSON — nothing to strip; show the body as-is.
         }
+        return responseJson;
+    }
+
+    // Header real estate is tight — the scheme/host of a CyberSource URL is noise there
+    // (full URL stays in the tooltip); client-relative URLs pass through unchanged.
+    private static string StripCybsHost(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return uri.PathAndQuery;
+        }
+        return url;
     }
 }

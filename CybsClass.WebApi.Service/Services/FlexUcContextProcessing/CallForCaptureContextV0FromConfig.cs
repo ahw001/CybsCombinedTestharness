@@ -34,7 +34,20 @@ namespace CybsClass.WebApi.Service.Services.FlexUcContextProcessing
                 CybsClass.EntityModels.UnifiedCheckoutConfiguration? config = null;
                 if (b2cCustomerDto.UnifiedCheckoutConfigurationId is int configId)
                 {
-                    config = await DBUnifiedCheckoutConfigurationServices.GetByIdAsync(configId);
+                    var configResult = await DBUnifiedCheckoutConfigurationServices.GetByIdAsync(configId);
+
+                    // See CallForCaptureContextV1 for the reasoning: a database failure must not
+                    // quietly become "use the hardcoded defaults" when the caller explicitly
+                    // selected a saved configuration.
+                    if (!configResult.Ok)
+                    {
+                        throw new InvalidOperationException(
+                            $"Could not load UnifiedCheckoutConfiguration {configId}: " +
+                            $"{configResult.Error?.Message ?? "database error"}");
+                    }
+
+                    // Ok with a null value is a genuinely missing row - still falls back to defaults.
+                    config = configResult.Value;
                 }
 
                 bool requestShipping = config?.RequestShipping ?? true;

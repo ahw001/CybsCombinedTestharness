@@ -33,25 +33,22 @@ public static class DBUnifiedCheckoutConfigurationServices
         });
 
     // ── Read by ID ────────────────────────────────────────────────────────────
-    // NOTE: deliberately still returns a bare nullable entity (not DbResult<T>) — it is consumed
-    // by the capture-context builders (CallForCaptureContextV1 / CallForCaptureContextV0FromConfig),
-    // which treat a missing config as "fall back to defaults". Changing this signature would
-    // ripple outside the CRUD surface, so it keeps its sentinel-on-failure behaviour.
-    public static async Task<UnifiedCheckoutConfiguration?> GetByIdAsync(int id)
-    {
-        try
+    // Returns DbResult like the rest of this class. It previously swallowed any exception and
+    // returned null, which made a database outage indistinguishable from "no such config" —
+    // and the capture-context builders read that null as "fall back to hardcoded defaults".
+    // A merchant who had picked a saved configuration would silently get a capture context
+    // built from defaults instead of being told the lookup had failed.
+    //
+    // Callers must now separate the two: `!Ok` is a real failure, while `Ok` with a null Value
+    // is a genuinely missing row, which stays a legitimate fall-back-to-defaults case.
+    public static Task<DbResult<UnifiedCheckoutConfiguration?>> GetByIdAsync(int id) =>
+        DbErrorHandler.GuardAsync<UnifiedCheckoutConfiguration?>(nameof(GetByIdAsync), async () =>
         {
             using CybsDbContext db = new();
             return await db.UnifiedCheckoutConfiguration
                 .AsNoTracking()
                 .FirstOrDefaultAsync(c => c.UnifiedCheckoutConfigurationId == id);
-        }
-        catch (Exception ex)
-        {
-            DbErrorHandler.Log(nameof(GetByIdAsync), ex);
-            return null;
-        }
-    }
+        });
 
     // ── Update ────────────────────────────────────────────────────────────────
     public static Task<DbResult<UnifiedCheckoutConfiguration?>> UpdateAsync(int id, UnifiedCheckoutConfigurationDto dto) =>

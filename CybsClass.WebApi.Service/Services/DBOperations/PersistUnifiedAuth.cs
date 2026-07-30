@@ -22,6 +22,26 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 
                 FollowOnTransJson followOnTransJson = JsonSerializer.Deserialize<FollowOnTransJson>(jsonObject)!;
 
+                // The customer and its order are created upstream by
+                // DBCustomerServices.InsertB2CCustomerAsync when the capture context is built,
+                // and TokenEndpoints puts both ids on the returned CaptureContextDto - they
+                // travel back here on CtxPaymentDto. Guard explicitly rather than letting
+                // Convert.ToInt32(null) produce 0 and die on FK_PaymentCardInfo_B2cCustomers,
+                // which reports the symptom and hides the cause.
+                if (!int.TryParse(ctxPaymentDto.B2cCustomerId, out int b2cCustomerId) || b2cCustomerId <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"No usable B2cCustomerId on the unified payment request (got '{ctxPaymentDto.B2cCustomerId ?? "null"}'). " +
+                        "It is created alongside the capture context and must round-trip through CaptureContextDto.");
+                }
+
+                if (!int.TryParse(ctxPaymentDto.OrderId, out int orderId) || orderId <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"No usable OrderId on the unified payment request (got '{ctxPaymentDto.OrderId ?? "null"}'). " +
+                        "It is created alongside the capture context and must round-trip through CaptureContextDto.");
+                }
+
                 using CybsDbContext db = new();
 
                 // Payment card and auth response are one unit of work. The context enables
@@ -35,18 +55,24 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
 
                 var paymentCardInfo = new PaymentCardInfo();
 
-                paymentCardInfo.B2cCustomerId = Convert.ToInt32(ctxPaymentDto.B2cCustomerId);
-                paymentCardInfo.InstrumentIdentifierId = followOnTransJson.TokenInformation?.InstrumentIdentifier?.Id!;
-                paymentCardInfo.InstrumentIdentifierState = followOnTransJson.TokenInformation?.InstrumentIdentifier?.State!;
+                paymentCardInfo.B2cCustomerId = b2cCustomerId;
+
+                // No raw PAN exists on this path - the card was captured by the hosted widget
+                // and only ever reaches us as a transient token - so the card columns stay
+                // null and the token identifiers carry the useful data.
+                paymentCardInfo.InstrumentIdentifierId = followOnTransJson.TokenInformation?.InstrumentIdentifier?.Id;
+                paymentCardInfo.InstrumentIdentifierState = followOnTransJson.TokenInformation?.InstrumentIdentifier?.State;
+                paymentCardInfo.InstrumentidentifierNew = Convert.ToString(followOnTransJson.TokenInformation?.InstrumentIdentifierNew);
+                paymentCardInfo.PaymentInstrumentId = followOnTransJson.TokenInformation?.PaymentInstrument?.Id;
+                paymentCardInfo.ResponseTransactionJson = jsonObject.ToJsonString();
 
                 EntityEntry<PaymentCardInfo> entity = db.PaymentCardInfos.Add(paymentCardInfo);
                 Console.WriteLine($"PaymentCard State: {entity.State}, PaymentCardId: {paymentCardInfo.PaymentCardId}");
 
                 int affected0 = await db.SaveChangesAsync();
-                Console.WriteLine($"PaymentCard State: {entity.State}, PaymentCardId: {paymentCardInfo.PaymentCardId}");
+                Console.WriteLine($"PaymentCard State: {entity.State}, B2cCustomerId: {b2cCustomerId}, PaymentCardId: {paymentCardInfo.PaymentCardId}");
+                dbResults.Add("B2cCustomerId", b2cCustomerId.ToString());
                 dbResults.Add("PaymentCardId", paymentCardInfo.PaymentCardId.ToString());
-
-                int? payCardInfo = paymentCardInfo!.PaymentCardId;
 
                 Console.WriteLine("Inserting auth transaction data ...");
 
@@ -70,7 +96,7 @@ namespace CybsClass.WebApi.Service.Services.DBOperations
                 authDb.Links = followOnTransJson.Links?.ToString() ?? "0";
 
                 authDb.Id = followOnTransJson.Id ?? "0";
-                authDb.OrderId = Convert.ToInt32(ctxPaymentDto.OrderId);
+                authDb.OrderId = orderId;
                 authDb.ProcInfoApprovalCode = followOnTransJson.ProcessorInformation?.ApprovalCode ?? "0";
                 authDb.ProcInfoNetworkTransactionId = followOnTransJson.ProcessorInformation?.NetworkTransactionId ?? "0";
                 authDb.ProcInfoResponseCode = followOnTransJson.ProcessorInformation?.ResponseCode ?? "0";

@@ -414,6 +414,31 @@ else
 
             _cardList = cardService.Cards.ToList();
 
+            // eCheck pages take a different draw: same random customer and cart, but a seeded
+            // bank account instead of a card. The card-specific guards below (null AccountNumber
+            // is fatal, then SetCardType) would reject a perfectly good eCheck customer and
+            // redirect to /errorhandler before the form ever rendered, so they are skipped.
+            bool isECheck = SafeFormElements.Contains("ShowBankAccountDetails")
+                            || SafeFormElements.Contains("ShowECheckToken");
+
+            if (isECheck)
+            {
+                customer = await GeneralNetworkUtilities.PopulateBillingECheck(
+                    _cardList, SafeFormElements.Contains("ShowBankAccountDetails"));
+
+                if (customer is null || customer.Error is not null)
+                {
+                    error = customer?.Error ?? "Failed to Complete eCheck Form Population";
+                    SessionTransJson echeckErrorResponse = new();
+                    echeckErrorResponse.error = error;
+                    sessionTransactions.AddTrans(echeckErrorResponse);
+                    Navigation.NavigateTo("/errorhandler");
+                    return;
+                }
+            }
+            else
+            {
+
             customer = await GeneralNetworkUtilities.PopulateBilling(_cardList);
 
             if (customer == null || customer.Error is not null || customer.AccountNumber is null)
@@ -440,6 +465,8 @@ else
                     throw new InvalidOperationException("Card Type Method Failed");
                 }
             }
+
+            } // end of the card-population branch
 
             if (customer is not null && CustInstChecked)
             {
@@ -555,7 +582,12 @@ else
                 }
             }
 
-
+            // PopulateForm replaces `customer` wholesale, so the validation flags set during
+            // initialization are gone by this point. Re-deriving them here keeps the form's
+            // required fields consistent with the page's FormElements whether the user typed the
+            // data or drew it from defaults — otherwise an eCheck page silently stops requiring
+            // a routing number the moment Use Defaults is ticked.
+            EnsureCustomerInitialized();
 
             StateHasChanged();
 
@@ -603,6 +635,12 @@ else
             customer.LineItem = new LineItems();
 
         customer.RequiresCardDetails = SafeFormElements.Contains("ShowAccountDetails");
+
+        // "ShowBankAccountDetails" means the page collects a bank account (routing/account/type
+        // required); "ShowECheckToken" means it supplies one from a stored TMS token instead.
+        // Either way the transaction is an eCheck, which is what obliges the full billTo block.
+        customer.RequiresBankDetails = SafeFormElements.Contains("ShowBankAccountDetails");
+        customer.IsECheck = customer.RequiresBankDetails || SafeFormElements.Contains("ShowECheckToken");
     }
 
 }

@@ -11,6 +11,21 @@
 
 <h1>@transactionPageTitle</h1>
 
+@if (!string.IsNullOrWhiteSpace(dbPersistWarning))
+{
+    <div class="container">
+        <div class="alert alert-warning" role="alert">
+            <h5 class="alert-heading">Transaction succeeded, but was not saved locally</h5>
+            <p class="mb-0">
+                CyberSource processed this transaction. Saving it to the database afterwards
+                failed, so the response below is real but no local record of it exists.
+            </p>
+            <hr>
+            <p class="mb-0"><small>@dbPersistWarning</small></p>
+        </div>
+    </div>
+}
+
 <div class="container">
     <div class="row">
         <div class="col-md-6 mb-2">
@@ -258,6 +273,55 @@
 
     private List<string> propertyValues = new List<string>();
 
+    private string dbPersistWarning = string.Empty;
+
+    /// <summary>
+    /// Pulls the "payment succeeded but persisting it failed" signal out of a raw transaction
+    /// response, if present.
+    /// </summary>
+    /// <remarks>
+    /// The server reports this alongside a SUCCESSFUL payment, deliberately never under the key
+    /// "error" - <c>JsonErrorExtractor</c> treats an "error" property as a failed transaction,
+    /// which this is not. Two keys are in use: <c>api/authtransaction</c> and
+    /// <c>api/followontrans</c> send "dbPersistError" (a plain message), while
+    /// <c>api/unified/unifiedpayment</c> sends "dbError" (a serialized ErrorObject). Neither was
+    /// read anywhere in this client, so a transaction that charged the card and then saved
+    /// nothing rendered as completely clean. The response is deserialized into a strongly typed
+    /// FollowOnTransResponse for display, which drops any key not on that type - hence reading
+    /// it from the raw node here, before that conversion.
+    /// </remarks>
+    private static string ExtractDbPersistWarning(JsonNode? node)
+    {
+        if (node is not JsonObject obj)
+        {
+            return string.Empty;
+        }
+
+        foreach (string key in new[] { "dbPersistError", "dbError" })
+        {
+            if (!obj.TryGetPropertyValue(key, out JsonNode? value) || value is null)
+            {
+                continue;
+            }
+
+            // Shape varies by endpoint: a bare string from the two payment endpoints, a nested
+            // ErrorObject from unifiedpayment. Guard the kind before reading rather than
+            // assuming either - the same ambiguity bit JsonErrorExtractor previously.
+            string text = value is JsonObject errorObject
+                ? errorObject["message"]?.ToString()
+                    ?? errorObject["error"]?.ToString()
+                    ?? errorObject.ToJsonString()
+                : value.ToString();
+
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+        }
+
+        return string.Empty;
+    }
+
 
     protected override void OnInitialized()
     {
@@ -365,6 +429,8 @@
                     showStandaloneCredit = false;
                 }
 
+                dbPersistWarning = ExtractDbPersistWarning(sessionTransJson!.TransactionJson);
+
                 followOnTransResponse = JsonSerializer.Deserialize<FollowOnTransResponse>(sessionTransJson!.TransactionJson!.ToString());
 
                 if (followOnTransResponse is not null && followOnTransResponse.OrderInformation is not null && 
@@ -388,6 +454,10 @@
 
         propertyValues = new();
 
+        // Cleared alongside propertyValues so a warning from the previous transaction cannot
+        // linger over a new one that persisted fine.
+        dbPersistWarning = string.Empty;
+
         // Serialize the object into a string for submission
 
         var options = new JsonSerializerOptions { WriteIndented = true };
@@ -405,6 +475,8 @@
             if (sessionResponse != null && sessionResponse.TransactionJson != null)
             {
                 var jsonNode = sessionResponse.TransactionJson;
+
+                dbPersistWarning = ExtractDbPersistWarning(jsonNode);
 
                 followOnTransResponse = JsonSerializer.Deserialize<FollowOnTransResponse>(jsonNode!.ToString()!);
 

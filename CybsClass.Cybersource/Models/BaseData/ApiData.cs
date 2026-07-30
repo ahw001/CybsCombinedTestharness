@@ -744,6 +744,15 @@ public class ProcessingInformation
     // body (DefaultIgnoreCondition.WhenWritingNull), so this has zero effect on those paths.
     [JsonPropertyName("paymentSolution")]
     public string? PaymentSolution { get; set; }
+
+    // eCheck only. Additive and nullable, so with DefaultIgnoreCondition.WhenWritingNull both
+    // serialise out of every existing card, Flex, TMS and Apple Pay request — the same argument
+    // that made PaymentSolution safe to add above.
+    [JsonPropertyName("bankTransferOptions")]
+    public BankTransferOptions? BankTransferOptions { get; set; }
+
+    [JsonPropertyName("recurringOptions")]
+    public RecurringOptions? RecurringOptions { get; set; }
 }
 
 // Digital-wallet tokenized card — distinct from FullCard (PAN/CVV) and the existing TokenizedCard
@@ -1212,6 +1221,71 @@ public class PaymentInformation
     public string? BinCountry { get; set; }
 
 }
+
+
+// ==================== eCheck (ACH) ====================
+// Request-side shapes for POST /pts/v2/payments with paymentType "check".
+//
+// These are deliberately new types rather than reuses of the similarly-named classes already in
+// this file. `Account` (above) carries only `number` and has no `type`, so it cannot express
+// paymentInformation.bank.account; `PaymentType` (further down) is a merchant-boarding shape
+// (`enabled` / `currencies`) and is unrelated to paymentInformation.paymentType.name. Both names
+// were already taken, hence the Echeck* prefix.
+
+public class EcheckBankAccount
+{
+    [JsonPropertyName("number")]
+    public string? Number { get; set; }
+
+    // C = checking, S = savings, X = corporate checking
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+}
+
+public class EcheckBank
+{
+    [JsonPropertyName("routingNumber")]
+    public string? RoutingNumber { get; set; }
+
+    [JsonPropertyName("account")]
+    public EcheckBankAccount? Account { get; set; }
+}
+
+public class EcheckPaymentTypeName
+{
+    // Always "check" for eCheck.
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+}
+
+// paymentInformation for an eCheck request. The token flow sends `customer` and omits `bank`
+// entirely; the bank-account flows do the reverse. Both always send `paymentType`.
+public class EcheckPaymentInformation
+{
+    [JsonPropertyName("bank")]
+    public EcheckBank? Bank { get; set; }
+
+    // Reuses the existing Customer class — its `href` is nullable and serialises away.
+    [JsonPropertyName("customer")]
+    public Customer? Customer { get; set; }
+
+    [JsonPropertyName("paymentType")]
+    public EcheckPaymentTypeName? PaymentType { get; set; }
+}
+
+public class BankTransferOptions
+{
+    // ccd | ppd | tel | web
+    [JsonPropertyName("secCode")]
+    public string? SecCode { get; set; }
+}
+
+public class RecurringOptions
+{
+    [JsonPropertyName("firstRecurringPayment")]
+    public bool? FirstRecurringPayment { get; set; }
+}
+// ======================================================
 
 
 public class TaxDetails

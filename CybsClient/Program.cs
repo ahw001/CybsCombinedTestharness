@@ -444,18 +444,20 @@ if (loggingEnabled)
 
 app.UseCors(CorsPolicy);
 
-// Surfaces the CyberSource endpoint URL(s) actually called during this request (if any)
-// on X-Cybs-Target-Urls, for display in the ApiLogSidebar. Pipe-delimited when a single
-// client request triggers more than one CyberSource call (e.g. combined token create).
+// Surfaces the CyberSource exchange(s) actually performed during this request (if any) for
+// display in the ApiLogSidebar: X-Cybs-Target-Urls carries the URL list (pipe-delimited;
+// kept for curl diagnostics and as a client fallback), and X-Cybs-Log-Id points at the full
+// request/response capture, retrievable once via GET /api/cybslog/{id}.
 app.Use(async (context, next) =>
 {
     CybsCallContext.Reset();
     context.Response.OnStarting(() =>
     {
-        var urls = CybsCallContext.GetTargetUrls();
-        if (urls.Count > 0)
+        var exchanges = CybsCallContext.GetExchanges();
+        if (exchanges.Count > 0)
         {
-            context.Response.Headers["X-Cybs-Target-Urls"] = string.Join(" | ", urls);
+            context.Response.Headers["X-Cybs-Target-Urls"] = string.Join(" | ", exchanges.Select(e => e.Url));
+            context.Response.Headers["X-Cybs-Log-Id"] = CybsCallLogStore.Add(exchanges).ToString();
         }
         return Task.CompletedTask;
     });
@@ -726,9 +728,11 @@ app.MapGroup("/api/unified").GroupUnifiedEndpoints();
 app.MapGroup("/api/uc-config").GroupUnifiedCheckoutConfigEndpoints();
 app.MapGroup("/api/invoice").GroupInvoiceEndpoints();
 app.MapGroup("/api/paybylink").GroupPayByLinkEndpoints();
+app.MapGroup("/api/echeck").GroupECheckEndpoints();
 app.MapGroup("/api/payerauth").GroupPayerAuthEndpoints();
 app.MapAuthTransResponseEndpoints();
 app.MapApplePayEndpoints();
+app.MapCybsLogEndpoints();
 app.MapFollowOnTransResponseEndpoints();
 app.MapIndividualTransactionEndpoints();
 app.MapNetworkTokenInfoEndpoints();

@@ -282,6 +282,76 @@ namespace CybsClient.Services.Utilities
             }
         }
 
+        /// <summary>
+        /// "Use Defaults" for the eCheck pages. Draws the same random customer the card checkout
+        /// draws — by calling PopulateBilling itself, so the billing half is provably identical
+        /// rather than a parallel copy that can drift — then discards the card it came back with
+        /// and fills bank-account fields from a random seeded ECheckTestAccount instead.
+        /// </summary>
+        /// <param name="cardList">
+        /// Only used to satisfy PopulateBilling's random-card draw. The card is thrown away.
+        /// </param>
+        /// <param name="includeBankAccount">
+        /// False on the token-debit page, which collects no bank account — the stored token
+        /// supplies it — and therefore wants billing and cart defaults only.
+        /// </param>
+        public static async Task<B2cCustomer> PopulateBillingECheck(
+            List<PayerAuthCardSampleDto> cardList, bool includeBankAccount)
+        {
+            B2cCustomer customer = await PopulateBilling(cardList);
+
+            if (customer is null || customer.Error is not null)
+            {
+                return customer ?? new B2cCustomer { Error = "Error: PopulateBillingECheck returned no customer" };
+            }
+
+            // eCheck is not a card transaction. Leaving these populated would put a PAN on a
+            // bank-account form and, worse, ship it to the server on submit.
+            customer.AccountNumber = null;
+            customer.ExpMonth = null;
+            customer.ExpYear = null;
+            customer.Cvv = null;
+            customer.CardType = null;
+
+            customer.IsECheck = true;
+
+            if (!includeBankAccount) return customer;
+
+            ApiResult<List<ECheckTestAccountDto>> result = await CallMinAPIs.GetECheckTestAccountsAsync();
+
+            if (result.Error is not null)
+            {
+                // Billing and cart are already populated and every bank field is hand-editable,
+                // so this degrades the convenience rather than the page. Surfaced, not swallowed.
+                Console.WriteLine($"[PopulateBillingECheck] Test account lookup failed: {result.Error.Message}");
+                customer.Error = "Error: could not load eCheck test accounts - "
+                                 + (result.Error.Message ?? result.Error.Error);
+                return customer;
+            }
+
+            List<ECheckTestAccountDto> accounts = result.Data ?? new List<ECheckTestAccountDto>();
+
+            if (accounts.Count == 0)
+            {
+                Console.WriteLine("[PopulateBillingECheck] No eCheck test accounts are seeded.");
+                customer.Error = "Error: no eCheck test accounts are seeded - run the eCheck DDL";
+                return customer;
+            }
+
+            Random random = new Random();
+            ECheckTestAccountDto account = accounts[random.Next(0, accounts.Count)];
+
+            customer.RoutingNumber = account.RoutingNumber;
+            customer.BankAccountNumber = account.AccountNumber;
+            customer.BankAccountType = account.AccountType;
+            customer.SecCode = account.SecCode;
+            customer.BankName = account.BankName;
+
+            Console.WriteLine($"[PopulateBillingECheck] Drew test account: {account.DisplayLabel}");
+
+            return customer;
+        }
+
         public static async Task<List<SampleInvoiceDetailDto>> GetSampleInvoices()
         {
             JsonSerializerOptions jsonOptions = new()

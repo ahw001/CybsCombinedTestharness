@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
+using CybsClient.Services.DTOs;
+using CybsClient.Services.Utilities;
 
 namespace CybsClient.Services.ApiLogging
 {
@@ -9,6 +11,10 @@ namespace CybsClient.Services.ApiLogging
     /// for BOTH CallMinAPIs code paths (SubmitForFollowOn and the typed ApiResult<T> helpers)
     /// without any changes to CallMinAPIs.cs.
     ///
+    /// When the response carries X-Cybs-Log-Id, the server made CyberSource call(s) during
+    /// this request; their full request/response capture is fetched from GET /api/cybslog/{id}
+    /// and attached to the entry, so the sidebar can show the server&lt;-&gt;CyberSource hop.
+    ///
     /// Response content is buffered (LoadIntoBufferAsync) before reading so that
     /// the subsequent ReadAsStringAsync call in CallMinAPIs still works correctly.
     /// </summary>
@@ -17,6 +23,15 @@ namespace CybsClient.Services.ApiLogging
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            // The cybslog fetch itself (made below via CallMinAPIs) rides this same named
+            // client, so it re-enters this handler. Pass it through unlogged — it is sidebar
+            // plumbing, not application traffic. (Recursion couldn't loop anyway: /api/cybslog
+            // makes no CyberSource calls, so its response never carries X-Cybs-Log-Id.)
+            if (request.RequestUri?.AbsolutePath.Contains("/api/cybslog/", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return await base.SendAsync(request, cancellationToken);
+            }
+
             // Capture request body. StringContent / ByteArrayContent is re-readable; safe to call here.
             string? requestJson = null;
             if (request.Content is not null)
@@ -51,7 +66,10 @@ namespace CybsClient.Services.ApiLogging
                 // one (top-level "cybersourceJson", or nested under "error"). Never throws —
                 // a non-JSON responseJson (the very "INVALID JSON" case this is meant to
                 // diagnose) just means no CybersourceJson is available to show.
+                // Also detect the server's 2XX + ErrorObject convention: a non-null root-level
+                // "error" property means an application-level failure the HTTP status hides.
                 string? cybersourceJson = null;
+                bool hasEmbeddedError = false;
                 if (!string.IsNullOrWhiteSpace(responseJson))
                 {
                     try
@@ -59,6 +77,9 @@ namespace CybsClient.Services.ApiLogging
                         var node = JsonNode.Parse(responseJson);
                         cybersourceJson = node?["cybersourceJson"]?.GetValue<string>()
                                           ?? node?["error"]?["cybersourceJson"]?.GetValue<string>();
+                        hasEmbeddedError = node is JsonObject rootObj
+                                           && rootObj.TryGetPropertyValue("error", out var errNode)
+                                           && errNode is not null;
                     }
                     catch { /* non-fatal — responseJson wasn't parseable JSON */ }
                 }
@@ -74,6 +95,26 @@ namespace CybsClient.Services.ApiLogging
                         .ToList();
                 }
 
+                // Full server<->CyberSource exchange capture, when the server recorded one.
+                // Fetched synchronously before publishing so the entry arrives complete and
+                // ordered; one extra local round-trip per CyberSource flow. Any failure here
+                // (evicted id, fetch error, DTO error) silently degrades to the URL-list
+                // fallback — the sidebar must never break application traffic.
+                IReadOnlyList<CybsExchangeDto>? cybsExchanges = null;
+                if (response.Headers.TryGetValues("X-Cybs-Log-Id", out var logIdValues)
+                    && Guid.TryParse(logIdValues.FirstOrDefault(), out var logId))
+                {
+                    try
+                    {
+                        var logResult = await CallMinAPIs.GetCybsCallLogAsync(logId);
+                        if (logResult.Data?.Error is null && logResult.Data?.Exchanges is { Count: > 0 } fetched)
+                        {
+                            cybsExchanges = fetched;
+                        }
+                    }
+                    catch { /* non-fatal — entry falls back to CybsTargetUrls display */ }
+                }
+
                 ApiLogHub.Publish(new ApiLogEntry
                 {
                     Method = method,
@@ -83,6 +124,8 @@ namespace CybsClient.Services.ApiLogging
                     ResponseJson = responseJson,
                     CybersourceJson = cybersourceJson,
                     CybsTargetUrls = cybsTargetUrls,
+                    CybsExchanges = cybsExchanges,
+                    HasEmbeddedError = hasEmbeddedError,
                     DurationMs = sw.ElapsedMilliseconds,
                     Kind = ApiLogKind.Request,
                     IsError = statusCode >= 400

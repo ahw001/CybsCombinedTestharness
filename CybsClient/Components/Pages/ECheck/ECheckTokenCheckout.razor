@@ -1,0 +1,339 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/echecktokencheckout"
+
+@inject NavigationManager Navigation
+
+@inject ICartService cartService
+@inject ISessionTransactions sessionTransactions
+
+<title>eCheck Token Checkout</title>
+
+<div class="py-1 text-center">
+    <h2>eCheck Token Checkout</h2>
+    <p class="text-body-secondary mb-0">
+        Debit a stored TMS token. The request carries
+        <code>paymentInformation.customer.id</code> and <strong>no bank node at all</strong> —
+        the token supplies the account.
+    </p>
+</div>
+
+<hr class="my-4">
+
+<div>
+    <div class="row g-5">
+
+        @if (Show)
+        {
+            <FormSection Title="Stored eCheck Token" HelpText="">
+                @if (loadError is not null)
+                {
+                    <div class="alert alert-danger" role="alert">
+                        Could not load saved tokens: @loadError
+                    </div>
+                }
+                else if (!loaded)
+                {
+                    <p class="mb-0">Loading saved tokens …</p>
+                }
+                else if (tokens.Count == 0)
+                {
+                    <div class="alert alert-warning mb-0" role="alert">
+                        No saved eCheck tokens yet. Run an
+                        <a href="echeckcheckout">eCheck Checkout</a> with
+                        <b>Create a TMS token with this transaction</b> ticked, then come back.
+                    </div>
+                }
+                else
+                {
+                    <div class="row">
+                        <div class="col-md-8">
+                            <label for="echeck-token" class="form-label"><b>Token</b></label>
+                            <select class="form-select" id="echeck-token"
+                                    value="@selectedTokenId" @onchange="OnTokenSelected">
+                                <option value="">Select a saved token …</option>
+                                @foreach (var token in tokens)
+                                {
+                                    <option value="@token.CustomerTokenId">
+                                        @token.DisplayLabel@(IsDebitable(token) ? "" : "  — customer-only, not debitable")
+                                    </option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <small class="text-body-secondary">
+                                @tokens.Count saved token@(tokens.Count == 1 ? "" : "s")
+                            </small>
+                        </div>
+                    </div>
+
+                    @if (selectedToken is not null && !IsDebitable(selectedToken))
+                    {
+                        <div class="alert alert-warning mt-3 mb-0" role="alert">
+                            <b>This token has no payment instrument.</b> It was created with
+                            <code>actionTokenTypes: ["customer"]</code> only. CyberSource will
+                            retrieve it successfully and then reject the debit with
+                            <code>MISSING_FIELD</code> on every
+                            <code>paymentInformation.bank.*</code> field, because nothing holds the
+                            bank account. Create a new token with <b>paymentInstrument</b> ticked.
+                        </div>
+                    }
+
+                    @if (selectedToken is not null)
+                    {
+                        <dl class="row mt-3 mb-0">
+                            <dt class="col-sm-3">customer.id</dt>
+                            <dd class="col-sm-9"><code>@selectedToken.CustomerTokenId</code></dd>
+
+                            @if (!string.IsNullOrWhiteSpace(selectedToken.PaymentInstrumentId))
+                            {
+                                <dt class="col-sm-3">paymentInstrument.id</dt>
+                                <dd class="col-sm-9"><code>@selectedToken.PaymentInstrumentId</code></dd>
+                            }
+
+                            @if (!string.IsNullOrWhiteSpace(selectedToken.InstrumentIdentifierId))
+                            {
+                                <dt class="col-sm-3">instrumentIdentifier.id</dt>
+                                <dd class="col-sm-9"><code>@selectedToken.InstrumentIdentifierId</code></dd>
+                            }
+
+                            <dt class="col-sm-3">Bank account</dt>
+                            <dd class="col-sm-9">
+                                @selectedToken.MaskedAccountNumber — routing @selectedToken.RoutingNumber
+                            </dd>
+
+                            <dt class="col-sm-3">Created</dt>
+                            <dd class="col-sm-9">@selectedToken.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</dd>
+                        </dl>
+                    }
+                }
+            </FormSection>
+
+            <CustomerMasterComponent ButtonText="Submit Token Debit"
+                                     FormElements="ECheckTokenFormElements"
+                                     FormCustomer="b2CCustomer"
+                                     ValidSubmit="Submit" />
+        }
+
+        <FormSection>
+            @if (error is not null)
+            {
+                <div class="col-6">
+                    <strong class="alert-danger">@error</strong>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Follow on Actions
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="echeckcheckout">New eCheck Checkout</a></li>
+                        <li><a class="dropdown-item" href="echecktokencheckout">New Token Checkout</a></li>
+                    </ul>
+                </div>
+            }
+        </FormSection>
+    </div>
+</div>
+
+@code {
+    private bool Show = true;
+    private bool containsError = false;
+
+    // "ShowECheckToken" instead of "ShowBankAccountDetails": no bank account is collected here,
+    // but the transaction is still an eCheck and still owes CyberSource a complete billTo.
+    List<string> ECheckTokenFormElements = new List<string>
+    {
+        "ShowMainForm", "ShowBilling", "ShowECheckToken", "ShowDefaults", "ShowCart"
+    };
+
+    private List<ECheckPaymentInstrumentDto> tokens = new();
+    private ECheckPaymentInstrumentDto? selectedToken;
+    private string? selectedTokenId;
+    private bool loaded;
+    private string? loadError;
+
+    private string? error;
+
+    private B2cCustomer b2CCustomer = new();
+
+    private SessionTransJson sessionTransJson = new();
+
+    private static List<BasicErrorInfo> basicErrorInfos = new List<BasicErrorInfo>();
+
+    protected override void OnInitialized()
+    {
+        if (cartService.Cart is not null && cartService.Cart.Count > 0)
+        {
+            b2CCustomer.Cart = cartService.Cart.ToList();
+            b2CCustomer.TotalAmount = cartService.Total;
+        }
+
+        base.OnInitialized();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        var result = await CallMinAPIs.GetECheckPaymentInstrumentsAsync();
+
+        if (result.Error is not null)
+        {
+            loadError = result.Error.Message ?? result.Error.Error;
+            Console.WriteLine($"[ECheckTokenCheckout] Token load failed: {loadError}");
+        }
+        else
+        {
+            tokens = result.Data ?? new List<ECheckPaymentInstrumentDto>();
+        }
+
+        loaded = true;
+        StateHasChanged();
+    }
+
+    private void OnTokenSelected(ChangeEventArgs e)
+    {
+        selectedTokenId = e.Value?.ToString();
+        selectedToken = string.IsNullOrEmpty(selectedTokenId)
+            ? null
+            : tokens.FirstOrDefault(t => t.CustomerTokenId == selectedTokenId);
+
+        // Clear any stale "pick a token" message once a selection is made.
+        error = null;
+    }
+
+    /// <summary>
+    /// A customer token with no payment instrument cannot be debited. CyberSource retrieves it
+    /// happily (embeddedActions.TOKEN_RETRIEVE: SUCCESS) and then rejects the payment with
+    /// MISSING_FIELD on paymentInformation.bank.routingNumber / account.number / account.type,
+    /// because nothing in the token holds the bank account. Verified live 2026-07-29.
+    /// </summary>
+    private static bool IsDebitable(ECheckPaymentInstrumentDto token) =>
+        !string.IsNullOrWhiteSpace(token.PaymentInstrumentId);
+
+    private async Task Submit(B2cCustomer submittedCustomer)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(selectedTokenId))
+            {
+                // Without a token this would silently become a bank-account request with no
+                // bank account — CyberSource would reject it with a field error the user has no
+                // way to connect back to the empty dropdown.
+                error = "Select a saved eCheck token before submitting.";
+                StateHasChanged();
+                return;
+            }
+
+            if (selectedToken is not null && !IsDebitable(selectedToken))
+            {
+                // Letting this through produces a MISSING_FIELD error naming bank fields the user
+                // never had the chance to enter — technically accurate, completely unhelpful.
+                error = "That token has no payment instrument and cannot be debited. "
+                        + "Create a new token with paymentInstrument included.";
+                StateHasChanged();
+                return;
+            }
+
+            sessionTransJson.OriginalTransactionType = CcTransactionTypes.ECHECK_DEBIT;
+            sessionTransJson.CurrentTransactionType = CcTransactionTypes.ECHECK_DEBIT;
+
+            submittedCustomer.IsECheck = true;
+            submittedCustomer.RequiresBankDetails = false;
+            submittedCustomer.RequiresCardDetails = false;
+            submittedCustomer.ECheckCustomerTokenId = selectedTokenId;
+
+            // Token flows do not tokenize again, and a stored token is never recurring here —
+            // both would change the request shape away from the documented token-debit example.
+            submittedCustomer.CreateECheckToken = false;
+            submittedCustomer.IsRecurring = false;
+            submittedCustomer.ActionTokenTypes = null;
+
+            // Bank fields must be empty so the server omits the bank node entirely.
+            submittedCustomer.RoutingNumber = null;
+            submittedCustomer.BankAccountNumber = null;
+            submittedCustomer.BankAccountType = null;
+            submittedCustomer.SecCode = null;
+
+            if (submittedCustomer.TotalAmount == 0.00m && submittedCustomer.Cart is not null)
+            {
+                foreach (var item in submittedCustomer.Cart)
+                {
+                    submittedCustomer.TotalAmount += item.UnitPrice;
+                }
+            }
+
+            var options = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            };
+            string jsonString = JsonSerializer.Serialize(submittedCustomer, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(
+                jsonString, sessionTransactions, (CcTransactionTypes)sessionTransJson.CurrentTransactionType!);
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse.TransactionJson is not null)
+            {
+                basicErrorInfos = JsonErrorExtractor.ExtractErrorObjects(sessionResponse.TransactionJson.ToString());
+
+                containsError = basicErrorInfos.Any(e =>
+                    AppErrorConfig.ErrorKeywords.Any(k =>
+                        $"{e.Status} {e.Reason} {e.Message} {e.Action}"
+                            .ToLowerInvariant()
+                            .Contains(k.ToLowerInvariant())
+                    )
+                );
+            }
+
+            if (containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse!);
+            cartService.DeleteAll();
+            Navigation.NavigateTo("/processecheck");
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    private void HandleErrorAndRedirect(SessionTransJson? response, string fallbackErrorMessage = "Unknown error")
+    {
+        Show = false;
+        StateHasChanged();
+
+        var errorMessage = response?.error ?? fallbackErrorMessage;
+        var errorJsonState = response?.JsonTransactionStateValues ?? TransactionStateValues.Error;
+
+        var errorResponse = response ?? new SessionTransJson
+        {
+            JsonTransactionStateValues = errorJsonState,
+            error = errorMessage,
+            TransactionStatus = "error"
+        };
+
+        sessionTransactions.AddTrans(errorResponse);
+        Navigation.NavigateTo("/errorhandler");
+    }
+}

@@ -60,13 +60,20 @@ namespace CybsClient.Services.DIServices
         public void SetTotal(decimal? total)
         {
             totalPrice = total;
+            NotifyStateChanged();
         }
 
+        // Must notify like AddProduct/DeleteProduct do: NavMenu's cart badge is an
+        // InteractiveServer component in the static layout, so it survives enhanced navigation
+        // and is never re-created after checkout clears the cart. Without this the badge keeps
+        // showing the pre-checkout item count on every page, including /store/cart — whose own
+        // body already recomputes to $0 because it reads Cart directly.
         public void DeleteAll()
         {
             price = 0; totalPrice = 0;
             cart.Clear();
             value = Guid.NewGuid();
+            NotifyStateChanged();
         }
 
     }

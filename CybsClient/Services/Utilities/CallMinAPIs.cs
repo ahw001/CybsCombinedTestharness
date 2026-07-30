@@ -378,6 +378,14 @@ namespace CybsClient.Services.Utilities
 
                     // POST the transaction for unified checkout *******************************
                 }
+                else if (currentTransaction == CcTransactionTypes.ECHECK_DEBIT)
+                {
+                    // POST the eCheck (ACH) transaction *******************************
+
+                    response = await client.PostAsync("/api/echeck/debit", content);
+
+                    // POST the eCheck (ACH) transaction *******************************
+                }
                 else if (currentTransaction == CcTransactionTypes.TRANS_TOKEN_INFORMATION)
                 {
                     // POST the transaction for transient token retrieval *******************************
@@ -774,7 +782,8 @@ namespace CybsClient.Services.Utilities
         /// the JsonNode directly when T is JsonNode, or true when T is bool).
         /// </summary>
         private static async Task<ApiResult<T>> ProcessResponseAsync<T>(
-            HttpResponseMessage response, string methodName, string url)
+            HttpResponseMessage response, string methodName, string url,
+            bool skipEmbeddedErrorScan = false)
         {
             var headers = CollectHeaders(response);
             int status = (int)response.StatusCode;
@@ -837,7 +846,12 @@ namespace CybsClient.Services.Utilities
                     null, status, headers);
             }
 
-            var embedded = DetectEmbeddedError(body);
+            // skipEmbeddedErrorScan: the cybslog fetch carries raw CyberSource bodies (which
+            // legitimately contain DECLINED/errorInformation content) as string properties, and
+            // JsonErrorExtractor recursively parses JSON-looking strings — scanning would
+            // false-positive on every logged decline. All other gauntlet stages still run;
+            // that endpoint's error channel is the DTO's own "error" property instead.
+            var embedded = skipEmbeddedErrorScan ? null : DetectEmbeddedError(body);
             if (embedded is not null)
             {
                 Console.Error.WriteLine($"[CallMinAPIs] {methodName} {url} 2xx with embedded error: {embedded}");
@@ -879,7 +893,7 @@ namespace CybsClient.Services.Utilities
             }
         }
 
-        private static async Task<ApiResult<T>> ExecuteGetAsync<T>(string relativeUrl)
+        private static async Task<ApiResult<T>> ExecuteGetAsync<T>(string relativeUrl, bool skipEmbeddedErrorScan = false)
         {
             try
             {
@@ -888,7 +902,7 @@ namespace CybsClient.Services.Utilities
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
                 HttpResponseMessage response = await client.GetAsync(relativeUrl);
-                return await ProcessResponseAsync<T>(response, "GET", relativeUrl);
+                return await ProcessResponseAsync<T>(response, "GET", relativeUrl, skipEmbeddedErrorScan);
             }
             catch (Exception ex)
             {
@@ -943,6 +957,37 @@ namespace CybsClient.Services.Utilities
         }
 
         // ── End Centralized HTTP helpers ────────────────────────────────────────
+
+
+        // ── CyberSource call log (ApiLogSidebar) ────────────────────────────────
+
+        /// <summary>
+        /// Fetches the server-side CyberSource exchange capture for a request that carried
+        /// an X-Cybs-Log-Id response header (see GET /api/cybslog/{id}). Called by
+        /// ApiLogDelegatingHandler only. skipEmbeddedErrorScan: the payload legitimately
+        /// contains declined/error CyberSource bodies as data — see ProcessResponseAsync.
+        /// </summary>
+        public static async Task<ApiResult<CybsCallLogDto>> GetCybsCallLogAsync(Guid logId)
+        {
+            return await ExecuteGetAsync<CybsCallLogDto>($"api/cybslog/{logId}", skipEmbeddedErrorScan: true);
+        }
+
+
+        // ── B2cCustomer ─────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Total customer count.
+        /// </summary>
+        /// <remarks>
+        /// Previously issued from DBCustomerServices with its own HttpClient and a bare
+        /// GetFromJsonAsync&lt;int&gt;, bypassing this class's error gauntlet entirely - status
+        /// tiering, the JSON-parse guard, the embedded-error scan and the ErrorObject. Since the
+        /// server now answers a database failure with HTTP 200 and a serialized ErrorObject,
+        /// that call tried to deserialize an object into an int and threw a raw JsonException at
+        /// the page. Routed through here it comes back as a normal failed ApiResult instead.
+        /// </remarks>
+        public static Task<ApiResult<int>> GetCustomerCountAsync()
+            => ExecuteGetAsync<int>("api/customercount");
 
 
         // ── ElectronicProduct CRUD ──────────────────────────────────────────────
@@ -1288,6 +1333,29 @@ namespace CybsClient.Services.Utilities
         {
             Console.WriteLine("\n\n[Tokenize] GET /api/tokens/sample-nt-cards");
             return ExecuteGetAsync<List<NetworkTokenTestCardDto>>("/api/tokens/sample-nt-cards");
+        }
+
+        // ── eCheck (ACH) ─────────────────────────────────────────────────────────
+        // Reads only. The eCheck transaction itself goes through SubmitForFollowOn
+        // (CcTransactionTypes.ECHECK_DEBIT) so it joins the session transaction chain and the
+        // response pages work the same way they do for a card checkout.
+
+        public static Task<ApiResult<List<ECheckTestAccountDto>>> GetECheckTestAccountsAsync()
+        {
+            Console.WriteLine("\n\n[eCheck] GET /api/echeck/test-accounts");
+            return ExecuteGetAsync<List<ECheckTestAccountDto>>("/api/echeck/test-accounts");
+        }
+
+        public static Task<ApiResult<List<ECheckPaymentInstrumentDto>>> GetECheckPaymentInstrumentsAsync()
+        {
+            Console.WriteLine("\n\n[eCheck] GET /api/echeck/paymentinstruments");
+            return ExecuteGetAsync<List<ECheckPaymentInstrumentDto>>("/api/echeck/paymentinstruments");
+        }
+
+        public static Task<ApiResult<List<ECheckPaymentInstrumentDto>>> GetECheckPaymentInstrumentsAsync(int b2cCustomerId)
+        {
+            Console.WriteLine($"\n\n[eCheck] GET /api/echeck/paymentinstruments/{b2cCustomerId}");
+            return ExecuteGetAsync<List<ECheckPaymentInstrumentDto>>($"/api/echeck/paymentinstruments/{b2cCustomerId}");
         }
 
         // ── Payer Authentication Test Cards (full 3DS 2.x outcome matrix) ──────────

@@ -49,4 +49,7 @@ public partial class B2cCustomer
 
     [InverseProperty("B2cCustomer")]
     public virtual ICollection<PaymentCardInfo> PaymentCardInfos { get; set; } = new List<PaymentCardInfo>();
+
+    [InverseProperty("B2cCustomer")]
+    public virtual ICollection<ECheckPaymentInstrument> ECheckPaymentInstruments { get; set; } = new List<ECheckPaymentInstrument>();
 }

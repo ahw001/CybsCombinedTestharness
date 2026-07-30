@@ -1,0 +1,128 @@
+@* Bank-account capture for eCheck (ACH). The eCheck counterpart to AccountDetailsSection —
+   rendered by MainFormSection when the hosting page's FormElements contains
+   "ShowBankAccountDetails". Bootstrap only, no scoped CSS. *@
+
+<hr class="my-4">
+
+<h4 class="mb-3">Bank account</h4>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-12">
+        <label for="echeck-test-account" class="form-label">Test account</label>
+        <select class="form-select" id="echeck-test-account" value="@_selectedTestAccountId"
+                @onchange="OnTestAccountSelected" disabled="@(_testAccounts.Count == 0)">
+            <option value="">@TestAccountPlaceholder</option>
+            @foreach (var account in _testAccounts)
+            {
+                <option value="@account.ECheckTestAccountId">@account.DisplayLabel</option>
+            }
+        </select>
+        <small class="text-body-secondary">
+            Seeded from CyberSource documentation. Picking one fills the fields below; every field
+            stays editable afterwards.
+        </small>
+        @if (_loadError is not null)
+        {
+            <div class="alert alert-warning mt-2 mb-0 py-2" role="alert">
+                Could not load test accounts: @_loadError
+            </div>
+        }
+    </div>
+</div>
+
+<div class="d-flex">
+    <div class="col-md-6 me-2">
+        <label for="echeck-routing" class="form-label">Routing number</label>
+        <InputText @bind-Value="Customer!.RoutingNumber" class="form-control" id="echeck-routing"
+                   placeholder="9 digits" />
+        <small class="text-body-secondary">ABA routing number — exactly 9 digits</small>
+        <ValidationMessage For="() => Customer.RoutingNumber" />
+    </div>
+    <div class="col-md-6 me-2">
+        <label for="echeck-account" class="form-label">Account number</label>
+        <InputText @bind-Value="Customer.BankAccountNumber" class="form-control" id="echeck-account"
+                   placeholder="" />
+        <ValidationMessage For="() => Customer.BankAccountNumber" />
+    </div>
+</div>
+
+<div class="d-flex mt-3">
+    <div class="col-md-4 me-2">
+        <label for="echeck-account-type" class="form-label">Account type</label>
+        <InputSelect @bind-Value="Customer.BankAccountType" class="form-select" id="echeck-account-type">
+            <option value="">Select …</option>
+            <option value="C">C — Checking</option>
+            <option value="S">S — Savings</option>
+            <option value="X">X — Corporate checking</option>
+        </InputSelect>
+        <ValidationMessage For="() => Customer.BankAccountType" />
+    </div>
+    <div class="col-md-4 me-2">
+        <label for="echeck-sec-code" class="form-label">SEC code</label>
+        <InputSelect @bind-Value="Customer.SecCode" class="form-select" id="echeck-sec-code">
+            <option value="">(omit)</option>
+            <option value="web">web — internet-authorised</option>
+            <option value="ppd">ppd — prearranged payment</option>
+            <option value="ccd">ccd — corporate credit/debit</option>
+            <option value="tel">tel — telephone-authorised</option>
+        </InputSelect>
+        <small class="text-body-secondary">Optional — "(omit)" leaves it out of the request</small>
+    </div>
+    <div class="col-md-4 me-2">
+        <label for="echeck-bank-name" class="form-label">Bank name</label>
+        <InputText @bind-Value="Customer.BankName" class="form-control" id="echeck-bank-name" />
+        <small class="text-body-secondary">Stored locally only — not sent to CyberSource</small>
+    </div>
+</div>
+
+@code {
+    [Parameter] public B2cCustomer? Customer { get; set; }
+
+    private List<ECheckTestAccountDto> _testAccounts = new();
+    private string? _selectedTestAccountId;
+    private string? _loadError;
+    private bool _loaded;
+
+    private string TestAccountPlaceholder =>
+        _loaded && _testAccounts.Count == 0 ? "No test accounts found" : "Select a test account …";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        var result = await CallMinAPIs.GetECheckTestAccountsAsync();
+
+        if (result.Error is not null)
+        {
+            // The page is still usable — every field is hand-editable, so a failed lookup
+            // degrades the dropdown rather than the form.
+            _loadError = result.Error.Message ?? result.Error.Error;
+            Console.WriteLine($"[BankAccountSection] Test account load failed: {_loadError}");
+        }
+        else
+        {
+            _testAccounts = result.Data ?? new List<ECheckTestAccountDto>();
+        }
+
+        _loaded = true;
+        StateHasChanged();
+    }
+
+    private void OnTestAccountSelected(ChangeEventArgs e)
+    {
+        _selectedTestAccountId = e.Value?.ToString();
+
+        if (string.IsNullOrEmpty(_selectedTestAccountId) || Customer is null) return;
+
+        if (!int.TryParse(_selectedTestAccountId, out int id)) return;
+
+        var account = _testAccounts.FirstOrDefault(a => a.ECheckTestAccountId == id);
+        if (account is null) return;
+
+        Customer.RoutingNumber = account.RoutingNumber;
+        Customer.BankAccountNumber = account.AccountNumber;
+        Customer.BankAccountType = account.AccountType;
+        Customer.SecCode = account.SecCode;
+        Customer.BankName = account.BankName;
+    }
+}

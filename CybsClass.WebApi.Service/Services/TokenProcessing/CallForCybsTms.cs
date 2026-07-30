@@ -97,6 +97,8 @@ namespace CybsClass.WebApi.Service.Services.TokenProcessing
                 resource = $"/tms/v2/customers/{id}/shipping-addresses";
             }
 
+            CybsExchange? exch = null;
+
             try
             {
                 // HTTP GET request
@@ -114,10 +116,11 @@ namespace CybsClass.WebApi.Service.Services.TokenProcessing
                         .Add(new MediaTypeWithQualityHeaderValue("application/json")); // ACCEPT header
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", jwtToken);
 
-                    CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                    exch = CybsCallContext.StartExchange("GET", "https://" + requestHost + resource, null);
                     using (var r = await client.GetAsync(new Uri("https://" + requestHost + resource)))
                     {
                         string responsecontent = await r.Content.ReadAsStringAsync();
+                        exch.Complete((int)r.StatusCode, responsecontent);
                         //Console.WriteLine("\n -- Response Message --\n\n" + responsecontent);
                         responseCode = (TaskStatus)r.StatusCode;
 
@@ -140,6 +143,7 @@ namespace CybsClass.WebApi.Service.Services.TokenProcessing
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
+                exch?.MarkError(e.Message);
                 string jsonString = $"{{ \"Exception\": \"{e}\" }}";
                 JsonDocument jsonDocument = JsonDocument.Parse(jsonString);
                 JsonElement rootElement = jsonDocument.RootElement;

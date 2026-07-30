@@ -127,13 +127,14 @@ namespace CybsClass.Cybersource.Transactions
 
                 // POST FOR CYBERSOURCE TRANSACTION ****************************
 
-                CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                var exch = CybsCallContext.StartExchange("POST", "https://" + requestHost + resource, request);
                 var response = await client.PostAsync("https://" + requestHost + resource, content);
 
                 // POST FOR CYBERSOURCE TRANSACTION ****************************
 
                 responseCode = (TaskStatus)response.StatusCode;
                 responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 LogRawResponseContent(responseContent, "Capture Context Response Payload");
             }
@@ -168,10 +169,11 @@ namespace CybsClass.Cybersource.Transactions
 
                 Console.WriteLine("\n -- Request Payload --\n\n" + request);
 
-                CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                var exch = CybsCallContext.StartExchange("POST", "https://" + requestHost + resource, request);
                 var response = await client.PostAsync("https://" + requestHost + resource, content);
                 responseCode = (TaskStatus)response.StatusCode;
                 responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 LogRawResponseContent(responseContent);
 
@@ -228,11 +230,12 @@ namespace CybsClass.Cybersource.Transactions
 
                 Console.WriteLine("\n -- Request Payload --\n\n" + request);
 
-                CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                var exch = CybsCallContext.StartExchange("POST", "https://" + requestHost + resource, request);
                 var response = await client.PostAsync("https://" + requestHost + resource, content);
 
                 responseCode = (TaskStatus)response.StatusCode;
                 responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 LogRawResponseContent(responseContent);
 
@@ -262,6 +265,7 @@ namespace CybsClass.Cybersource.Transactions
             JsonObject? jsonObject = [];
             string responseContent = string.Empty;
             LastRequestSent = request;
+            CybsExchange? exch = null;
 
             try
             {
@@ -314,11 +318,12 @@ namespace CybsClass.Cybersource.Transactions
                     }
                     LastRequestHeaders = requestHeaders;
 
-                    CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                    exch = CybsCallContext.StartExchange("POST", "https://" + requestHost + resource, request);
                     var response = await client.PostAsync("https://" + requestHost + resource, content);
 
                     responseCode = (TaskStatus)response.StatusCode;
                     responseContent = await response.Content.ReadAsStringAsync();
+                    exch.Complete((int)response.StatusCode, responseContent);
 
                     LogRawResponseContent(responseContent);
 
@@ -355,6 +360,7 @@ namespace CybsClass.Cybersource.Transactions
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
+                exch?.MarkError(e.Message);
                 jsonObject = new JsonObject();
                 jsonObject["error"] = e.Message;
                 // responseContent may be non-JSON (HTML error page, gateway/SSL failure, etc.) — that
@@ -445,13 +451,14 @@ namespace CybsClass.Cybersource.Transactions
 
                 /*********** CALL GET API TO RETRIEVE TRANS TOKEN *******************/
 
-                CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                var exch = CybsCallContext.StartExchange("GET", "https://" + requestHost + resource, null);
                 var response = await client.GetAsync(new Uri("https://" + requestHost + resource));
 
                 /*********** CALL GET API TO RETRIEVE TRANS TOKEN *******************/
 
                 responseCode = (TaskStatus)response.StatusCode;
                 string responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 LogRawResponseContent(responseContent);
 
@@ -487,6 +494,7 @@ namespace CybsClass.Cybersource.Transactions
             merchantID = Credentials.GetMerchantID();
             requestHost = Credentials.GetRequestHost();
             JsonObject? jsonObject = [];
+            CybsExchange? exch = null;
 
             try
             {
@@ -519,10 +527,11 @@ namespace CybsClass.Cybersource.Transactions
                 }
                 LastRequestHeaders = requestHeaders;
 
-                CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                exch = CybsCallContext.StartExchange("DELETE", "https://" + requestHost + resource, null);
                 var response = await client.DeleteAsync("https://" + requestHost + resource);
 
                 string responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 LogRawResponseContent(responseContent);
 
@@ -557,6 +566,7 @@ namespace CybsClass.Cybersource.Transactions
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
+                exch?.MarkError(e.Message);
                 jsonObject = new JsonObject();
                 jsonObject["error"] = e.Message;
                 return jsonObject;
@@ -574,6 +584,7 @@ namespace CybsClass.Cybersource.Transactions
             merchantID = Credentials.GetMerchantID();
             requestHost = Credentials.GetRequestHost();
             JsonObject? jsonObject = [];
+            CybsExchange? exch = null;
 
             try
             {
@@ -614,10 +625,11 @@ namespace CybsClass.Cybersource.Transactions
                 }
                 LastRequestHeaders = requestHeaders;
 
-                CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                exch = CybsCallContext.StartExchange("PATCH", "https://" + requestHost + resource, request);
                 var response = await client.PatchAsync("https://" + requestHost + resource, content);
 
                 string responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 LogRawResponseContent(responseContent);
 
@@ -645,6 +657,7 @@ namespace CybsClass.Cybersource.Transactions
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
+                exch?.MarkError(e.Message);
                 jsonObject = new JsonObject();
                 jsonObject["error"] = e.Message;
                 return jsonObject;
@@ -661,6 +674,7 @@ namespace CybsClass.Cybersource.Transactions
             merchantID = Credentials.GetMerchantID();
             requestHost = Credentials.GetRequestHost();
             JsonObject? jsonObject = new JsonObject();
+            CybsExchange? exch = null;
 
             try
             {
@@ -706,9 +720,12 @@ namespace CybsClass.Cybersource.Transactions
                 Console.WriteLine($"\n -- Plaintext Request Payload --\n{request}");
                 Console.WriteLine($"\n -- Encrypted Body (length: {encryptedBody.Length}) --\n{encryptedBody}");
 
-                CybsCallContext.RecordTargetUrl($"https://{requestHost}{resource}");
+                // Recorded with the PLAINTEXT request (never the JWE) so the ApiLogSidebar shows
+                // readable JSON; the decrypted response overwrites ResponseJson below for the same reason.
+                exch = CybsCallContext.StartExchange("POST", $"https://{requestHost}{resource}", request);
                 var response = await client.PostAsync($"https://{requestHost}{resource}", content);
                 string responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 LogRawResponseContent(responseContent);
 
@@ -732,6 +749,7 @@ namespace CybsClass.Cybersource.Transactions
                             ?? throw new InvalidOperationException("ResponseMlePrivateKey not initialized.");
 
                         string plainText = JoseJwtDecrypt.DecryptJweWithKey(jweCompact, mleKey);
+                        exch.ResponseJson = CybsExchange.Truncate(plainText);
 
                         Console.WriteLine($"\n -- Decrypted Response Payload --\n{plainText}");
                         jsonObject = JsonSerializer.Deserialize<JsonObject>(plainText);
@@ -753,6 +771,7 @@ namespace CybsClass.Cybersource.Transactions
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
+                exch?.MarkError(e.Message);
                 jsonObject = new JsonObject();
                 jsonObject["error"] = e.Message;
                 return jsonObject;
@@ -774,6 +793,7 @@ namespace CybsClass.Cybersource.Transactions
             merchantID = Credentials.GetMerchantID();
             requestHost = Credentials.GetRequestHost();
             JsonObject? jsonObject = new JsonObject();
+            CybsExchange? exch = null;
 
             try
             {
@@ -809,9 +829,10 @@ namespace CybsClass.Cybersource.Transactions
 
                 Console.WriteLine($"\n -- Request Payload --\n{request}");
 
-                CybsCallContext.RecordTargetUrl($"https://{requestHost}{resource}");
+                exch = CybsCallContext.StartExchange("POST", $"https://{requestHost}{resource}", request);
                 var response = await client.PostAsync($"https://{requestHost}{resource}", content);
                 string responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 LogRawResponseContent(responseContent);
 
@@ -829,6 +850,7 @@ namespace CybsClass.Cybersource.Transactions
                     var mleKey = MleCredentials.LegacyMlePrivateKey
                         ?? throw new InvalidOperationException("LegacyMlePrivateKey not initialized — check LegacyMlePrivateKeyPath in appsettings.json.");
                     string plainText = JoseJwtDecrypt.DecryptJweWithKey(responseContent.Trim(), mleKey);
+                    exch.ResponseJson = CybsExchange.Truncate(plainText);
                     Console.WriteLine($"\n -- Decrypted Legacy MLE Response --\n{plainText}");
                     jsonObject = JsonSerializer.Deserialize<JsonObject>(plainText);
                 }
@@ -842,6 +864,7 @@ namespace CybsClass.Cybersource.Transactions
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
+                exch?.MarkError(e.Message);
                 jsonObject = new JsonObject();
                 jsonObject["error"] = e.Message;
                 return jsonObject;
@@ -865,6 +888,7 @@ namespace CybsClass.Cybersource.Transactions
             merchantID = Credentials.GetMerchantID();
             requestHost = Credentials.GetRequestHost();
             JsonObject? jsonObject = new JsonObject();
+            CybsExchange? exch = null;
 
             try
             {
@@ -902,9 +926,10 @@ namespace CybsClass.Cybersource.Transactions
 
                 Console.WriteLine($"\n -- Request Payload --\n{request}");
 
-                CybsCallContext.RecordTargetUrl($"https://{requestHost}{resource}");
+                exch = CybsCallContext.StartExchange("POST", $"https://{requestHost}{resource}", request);
                 var response = await client.PostAsync($"https://{requestHost}{resource}", content);
                 string responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 LogRawResponseContent(responseContent);
 
@@ -922,6 +947,7 @@ namespace CybsClass.Cybersource.Transactions
                     var mleKey = MleCredentials.LegacyMlePrivateKey
                         ?? throw new InvalidOperationException("LegacyMlePrivateKey not initialized — check LegacyMlePrivateKeyPath in appsettings.json.");
                     string plainText = JoseJwtDecrypt.DecryptJweWithKey(responseContent.Trim(), mleKey);
+                    exch.ResponseJson = CybsExchange.Truncate(plainText);
                     var joseOptions = new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
                     Console.WriteLine($"\n -- Decrypted application/jose Response --\n{JsonSerializer.Serialize(JsonSerializer.Deserialize<JsonObject>(plainText), joseOptions)}");
                     jsonObject = JsonSerializer.Deserialize<JsonObject>(plainText);
@@ -936,6 +962,7 @@ namespace CybsClass.Cybersource.Transactions
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
+                exch?.MarkError(e.Message);
                 jsonObject = new JsonObject();
                 jsonObject["error"] = e.Message;
                 return jsonObject;
@@ -970,6 +997,7 @@ namespace CybsClass.Cybersource.Transactions
             merchantID = Credentials.GetMerchantID();
             requestHost = Credentials.GetRequestHost();
             JsonObject? jsonObject = new JsonObject();
+            CybsExchange? exch = null;
 
             try
             {
@@ -1026,9 +1054,12 @@ namespace CybsClass.Cybersource.Transactions
                 Console.WriteLine("-------------------------------------");
                 Console.WriteLine($"\n -- Request Body --\n{bodyToSend}");
 
-                CybsCallContext.RecordTargetUrl($"https://{requestHost}{resource}");
+                // Recorded with the PLAINTEXT request (never the encrypted bodyToSend) so the
+                // ApiLogSidebar shows readable JSON; decrypted responses overwrite ResponseJson below.
+                exch = CybsCallContext.StartExchange("POST", $"https://{requestHost}{resource}", request);
                 var response = await client.PostAsync($"https://{requestHost}{resource}", content);
                 string responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 LogRawResponseContent(responseContent);
                 Console.WriteLine("---------- RESPONSE HEADERS ----------");
@@ -1054,6 +1085,7 @@ namespace CybsClass.Cybersource.Transactions
                     string plainText = JoseJwtDecrypt.DecryptJweWithKey(responseContent.Trim(), blobKey);
                     if (string.IsNullOrEmpty(plainText))
                         throw new InvalidOperationException("JWE decryption returned empty — LegacyMlePrivateKey does not match the key used to encrypt this BLOB response.");
+                    exch.ResponseJson = CybsExchange.Truncate(plainText);
                     Console.WriteLine($"\n -- Decrypted BLOB Response --\n{plainText}");
                     jsonObject = JsonSerializer.Deserialize<JsonObject>(plainText);
                 }
@@ -1076,6 +1108,7 @@ namespace CybsClass.Cybersource.Transactions
                         string plainText = JoseJwtDecrypt.DecryptJweWithKey(jweCompact, wrappedKey);
                         if (string.IsNullOrEmpty(plainText))
                             throw new InvalidOperationException("JWE decryption returned empty — ResponseMlePrivateKey does not match the key used to encrypt the encryptedResponse.");
+                        exch.ResponseJson = CybsExchange.Truncate(plainText);
                         Console.WriteLine($"\n -- Decrypted Wrapped Response --\n{plainText}");
                         jsonObject = JsonSerializer.Deserialize<JsonObject>(plainText);
                     }
@@ -1099,6 +1132,7 @@ namespace CybsClass.Cybersource.Transactions
             catch (Exception e)
             {
                 Console.WriteLine($"[MleGrid] ERROR: {e.Message}");
+                exch?.MarkError(e.Message);
                 jsonObject = new JsonObject();
                 var errObj = new JsonObject();
                 errObj["error"] = e.GetType().Name;
@@ -1134,6 +1168,7 @@ namespace CybsClass.Cybersource.Transactions
 
             string requestId = id;
             string resource = string.Empty;
+            CybsExchange? exch = null;
 
             string jwtToken = Credentials.GenerateJWT(request, "POST", false);
 
@@ -1203,13 +1238,14 @@ namespace CybsClass.Cybersource.Transactions
 
                     // POST FOR FOLLOW ON TRANSACTION ****************************
 
-                    CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                    exch = CybsCallContext.StartExchange("POST", "https://" + requestHost + resource, request);
                     var response = await client.PostAsync("https://" + requestHost + resource, content);
 
                     // POST FOR FOLLOW ON TRANSACTION ****************************
 
                     responseCode = (TaskStatus)response.StatusCode;
                     responsecontent = await response.Content.ReadAsStringAsync();
+                    exch.Complete((int)response.StatusCode, responsecontent);
 
                     jsonNode = JsonSerializer.Deserialize<JsonNode>(responsecontent);
 
@@ -1251,6 +1287,7 @@ namespace CybsClass.Cybersource.Transactions
             {
                 Console.WriteLine("ERROR IN FOLLOW ON PROCESSING");
                 Console.WriteLine(e.Message);
+                exch?.MarkError(e.Message);
                 JsonNode jsonNode = jsonObject;
                 jsonNode["Exception"] = "ERROR IN FOLLOW ON PROCESSING" + e.Message;
                 // Preserve the raw CyberSource body (may be non-JSON) so the failure is diagnosable.

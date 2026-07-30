@@ -85,6 +85,41 @@ public class B2cCustomer : IValidatableObject
     // so FullName/AccountNumber/ExpMonth/ExpYear/Cvv must not be required there.
     public bool RequiresCardDetails { get; set; } = true;
 
+    // ==================== eCheck (ACH) ====================
+    // Property names here must match the server B2cCustomerDto's [JsonPropertyName] values
+    // case-insensitively. A casing drift binds silently to null rather than erroring, because
+    // pages serialize this model with no naming policy and the server deserializes
+    // case-insensitively — the failure presents as "the field was never filled in".
+
+    public string? RoutingNumber { get; set; }
+    public string? BankAccountNumber { get; set; }
+
+    // C = checking, S = savings, X = corporate checking
+    public string? BankAccountType { get; set; }
+
+    // ccd | ppd | tel | web — null omits bankTransferOptions from the request entirely
+    public string? SecCode { get; set; }
+
+    public string? BankName { get; set; }
+
+    public bool IsRecurring { get; set; }
+    public bool FirstRecurringPayment { get; set; } = true;
+    public bool CreateECheckToken { get; set; }
+
+    // Set by the token-debit flow — becomes paymentInformation.customer.id server-side, and the
+    // request then carries no bank node at all.
+    public string? ECheckCustomerTokenId { get; set; }
+
+    // Counterpart to RequiresCardDetails, set from FormElements.Contains("ShowBankAccountDetails").
+    // Means "this page collects a bank account", so routing/account/type are required.
+    public bool RequiresBankDetails { get; set; }
+
+    // Means "this transaction is an eCheck", which is a wider claim than the one above — the
+    // token-debit page collects no bank account but still owes CyberSource a complete billTo.
+    // Both eCheck pages set it; every existing page leaves it false and is unaffected.
+    public bool IsECheck { get; set; }
+    // ======================================================
+
     // Flags the Flex capture-context request (server: CallForFlexCaptureContext) to send a
     // narrower allowedCardNetworks list and omit allowedPaymentTypes entirely, matching a
     // known-working external application's capture context — set only by the Network Token
@@ -209,6 +244,42 @@ public class B2cCustomer : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
+        // eCheck first — the card block below early-returns, and the eCheck pages set
+        // RequiresCardDetails = false, so anything placed after that return never runs for them.
+
+        if (IsECheck)
+        {
+            // Unlike a card authorization, where most of billTo is optional, every one of these
+            // is required by the eCheck REST API. Catching it here beats a round trip that comes
+            // back INVALID_DATA naming a field the user cannot see.
+            if (string.IsNullOrWhiteSpace(Address1))
+                yield return new ValidationResult("Address is required for eCheck.", new[] { nameof(Address1) });
+            if (string.IsNullOrWhiteSpace(City))
+                yield return new ValidationResult("City is required for eCheck.", new[] { nameof(City) });
+            if (string.IsNullOrWhiteSpace(AdministrativeArea))
+                yield return new ValidationResult("State is required for eCheck (USPS two-letter code).", new[] { nameof(AdministrativeArea) });
+            if (string.IsNullOrWhiteSpace(PostalCode))
+                yield return new ValidationResult("Postal code is required for eCheck.", new[] { nameof(PostalCode) });
+            if (string.IsNullOrWhiteSpace(Email))
+                yield return new ValidationResult("Email is required for eCheck.", new[] { nameof(Email) });
+            if (string.IsNullOrWhiteSpace(Phone))
+                yield return new ValidationResult("Phone number is required for eCheck.", new[] { nameof(Phone) });
+        }
+
+        if (RequiresBankDetails)
+        {
+            if (string.IsNullOrWhiteSpace(RoutingNumber))
+                yield return new ValidationResult("The RoutingNumber field is required.", new[] { nameof(RoutingNumber) });
+            else if (RoutingNumber.Length != 9 || !RoutingNumber.All(char.IsDigit))
+                yield return new ValidationResult("Routing number must be exactly 9 digits.", new[] { nameof(RoutingNumber) });
+
+            if (string.IsNullOrWhiteSpace(BankAccountNumber))
+                yield return new ValidationResult("The BankAccountNumber field is required.", new[] { nameof(BankAccountNumber) });
+
+            if (string.IsNullOrWhiteSpace(BankAccountType))
+                yield return new ValidationResult("The BankAccountType field is required.", new[] { nameof(BankAccountType) });
+        }
+
         if (!RequiresCardDetails) yield break;
 
         if (string.IsNullOrWhiteSpace(FullName))

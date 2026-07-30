@@ -86,10 +86,11 @@ namespace CybsClass.Cybersource.Transactions
 
                 Console.WriteLine(" -- Request Payload --\n" + request);
 
-                CybsCallContext.RecordTargetUrl("https://" + posRequestHost + resource);
+                var exch = CybsCallContext.StartExchange("POST", "https://" + posRequestHost + resource, request);
                 var response = await client.PostAsync("https://" + posRequestHost + resource, content);
                 responseCode = (TaskStatus)response.StatusCode;
                 responseContent = await response.Content.ReadAsStringAsync();
+                exch.Complete((int)response.StatusCode, responseContent);
 
                 if (responseContent is not null)
                 {
@@ -119,6 +120,7 @@ namespace CybsClass.Cybersource.Transactions
             requestHost = PosCredentials.GetPosRequestHost();
             TaskStatus responseCode;
             JsonObject? jsonObject = [];
+            CybsExchange? exch = null;
 
             try
             {
@@ -149,13 +151,14 @@ namespace CybsClass.Cybersource.Transactions
 
                     // POST FOR CYBERSOURCE TRANSACTION ****************************
 
-                    CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                    exch = CybsCallContext.StartExchange("POST", "https://" + requestHost + resource, request);
                     var response = await client.PostAsync("https://" + requestHost + resource, content);
 
                     // POST FOR CYBERSOURCE TRANSACTION ****************************
 
                     responseCode = (TaskStatus)response.StatusCode;
                     string responseContent = await response.Content.ReadAsStringAsync();
+                    exch.Complete((int)response.StatusCode, responseContent);
 
                     jsonObject = JsonSerializer.Deserialize<JsonObject>(responseContent);
 
@@ -179,6 +182,7 @@ namespace CybsClass.Cybersource.Transactions
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
+                exch?.MarkError(e.Message);
                 jsonObject = new JsonObject();
                 jsonObject["error"] = e.Message;
                 return jsonObject;

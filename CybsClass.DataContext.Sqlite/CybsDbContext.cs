@@ -113,8 +113,16 @@ public partial class CybsDbContext : DbContext
     public virtual DbSet<TokenizeTransaction> TokenizeTransactions { get; set; }
     // ===============================================================
 
+    // ==================== eCheck (ACH) ====================
+    // Each entity carries an explicit [Table("...")] attribute naming the singular SQL table,
+    // so these DbSet names cannot reintroduce the NetworkTokenTestCard "Invalid object name" bug.
+    public virtual DbSet<ECheckTestAccount> ECheckTestAccounts { get; set; }
+    public virtual DbSet<ECheckTransaction> ECheckTransactions { get; set; }
+    public virtual DbSet<ECheckPaymentInstrument> ECheckPaymentInstruments { get; set; }
+    // ======================================================
+
     // ==================== Unified Checkout Store Configuration ====================
-    // DbSet name matches the table name exactly (singular) â€” see the NetworkTokenTestCard
+    // DbSet name matches the table name exactly (singular) — see the NetworkTokenTestCard
     // naming-bug precedent; EF Core maps table name to this property name by convention.
     public virtual DbSet<UnifiedCheckoutConfiguration> UnifiedCheckoutConfiguration { get; set; }
     // =================================================================================
@@ -184,6 +192,20 @@ public partial class CybsDbContext : DbContext
             entity.HasOne(d => d.Order).WithMany(p => p.ApplePayTransactions)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_ApplePayTransaction_Orders");
+        });
+
+        modelBuilder.Entity<ECheckTransaction>(entity =>
+        {
+            entity.HasOne(d => d.Order).WithMany(p => p.ECheckTransactions)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ECheckTransaction_Orders");
+        });
+
+        modelBuilder.Entity<ECheckPaymentInstrument>(entity =>
+        {
+            entity.HasOne(d => d.B2cCustomer).WithMany(p => p.ECheckPaymentInstruments)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ECheckPaymentInstrument_B2cCustomers");
         });
 
         modelBuilder.Entity<B2cOrdersQry>(entity =>

@@ -254,7 +254,19 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        customerCount = await DBCustomerServices.GetCustomerCount();
+        // Through CallMinAPIs so the shared error gauntlet runs. A database failure now arrives
+        // as HTTP 200 carrying an ErrorObject, which the old direct GetFromJsonAsync<int> call
+        // threw a raw JsonException on; here it is just a failed ApiResult and the page still
+        // renders with a count of zero.
+        ApiResult<int> customerCountResult = await CallMinAPIs.GetCustomerCountAsync();
+
+        // On failure Data is default(int), i.e. 0 - the page renders rather than throwing.
+        customerCount = customerCountResult.Data;
+
+        if (!customerCountResult.IsSuccess)
+        {
+            Console.WriteLine($"GetCustomerCountAsync failed: {customerCountResult.Error?.Message}");
+        }
 
         if (b2CCustomer is null)
         {

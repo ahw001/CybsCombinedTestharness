@@ -89,37 +89,105 @@
         else if (Phase == CheckoutPhase.UnifiedCheckoutMount)
         {
             <div class="col-12">
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <label class="form-label">Test Card (select, then copy/paste into the Unified Checkout form below)</label>
-                        <select class="form-select mb-2" @onchange="OnTestCardSelected">
-                            <option value="">-- Select a test card --</option>
-                            <optgroup label="Standard Test Cards">
-                                @for (var i = 0; i < cardService.Cards.Count; i++)
-                                {
-                                    var card = cardService.Cards[i];
-                                    <option value="std:@i">@card.CardBrand @card.AccountNumber</option>
-                                }
-                            </optgroup>
-                            @foreach (var group in GroupedPaCards)
-                            {
-                                <optgroup label="Payer Auth — @group.Key">
-                                    @foreach (var card in group)
+                @if (ShowCardTestValues)
+                {
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <label class="form-label">Test Card (select, then copy/paste into the Unified Checkout form below)</label>
+                            <select class="form-select mb-2" value="@cardSelectValue" @onchange="OnTestCardSelected">
+                                <option value="">-- Select a test card --</option>
+                                <optgroup label="Standard Test Cards">
+                                    @for (var i = 0; i < cardService.Cards.Count; i++)
                                     {
-                                        <option value="pa:@card.SamplePayAuthPaymentCardId">@card.OptionLabel</option>
+                                        var card = cardService.Cards[i];
+                                        <option value="std:@i">@card.CardBrand @card.AccountNumber</option>
                                     }
                                 </optgroup>
+                                @foreach (var group in GroupedPaCards)
+                                {
+                                    <optgroup label="Payer Auth — @group.Key">
+                                        @foreach (var card in group)
+                                        {
+                                            <option value="pa:@card.SamplePayAuthPaymentCardId">@card.OptionLabel</option>
+                                        }
+                                    </optgroup>
+                                }
+                            </select>
+                            @if (selectedTestCardNumber is not null)
+                            {
+                                <div class="alert alert-info py-2 small mb-0">
+                                    @ValueRow("Card number", selectedTestCardNumber)
+                                    @ValueRow("Exp month", selectedTestCardExpMonth)
+                                    @ValueRow("Exp year", selectedTestCardExpYear)
+                                    @ValueRow("CVV", selectedTestCardCvv)
+                                </div>
                             }
-                        </select>
-                        @if (selectedTestCardNumber is not null)
-                        {
-                            <div class="alert alert-info py-2 small mb-0">
-                                <div>Card Number: <code>@selectedTestCardNumber</code></div>
-                                <div>Exp: <code>@selectedTestCardExpMonth/@selectedTestCardExpYear</code> &nbsp; CVV: <code>@selectedTestCardCvv</code></div>
-                            </div>
-                        }
+                        </div>
                     </div>
-                </div>
+                }
+
+                @if (ShowECheckTestValues)
+                {
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <label class="form-label">
+                                eCheck Test Account (select, then copy/paste into the Unified Checkout
+                                bank-account form below)
+                            </label>
+                            <select class="form-select mb-2" value="@echeckSelectValue"
+                                    @onchange="OnECheckAccountSelected" disabled="@(echeckAccounts.Count == 0)">
+                                <option value="">@ECheckPlaceholder</option>
+                                @foreach (var group in GroupedECheckAccounts)
+                                {
+                                    <optgroup label="eCheck — @group.Key">
+                                        @foreach (var account in group)
+                                        {
+                                            <option value="@account.ECheckTestAccountId">@account.DisplayLabel</option>
+                                        }
+                                    </optgroup>
+                                }
+                            </select>
+                            <small class="text-body-secondary d-block">
+                                Seeded from CyberSource documentation. The Unified Checkout Echeck Test
+                                Values page documents only routing number <code>071923284</code> with any
+                                supported account number, so every row here is valid for the widget
+                                whichever REST flow its category names.
+                            </small>
+
+                            @if (echeckLoadError is not null)
+                            {
+                                <div class="alert alert-warning py-2 small mt-2 mb-0">
+                                    Could not load eCheck test accounts: @echeckLoadError
+                                </div>
+                            }
+                            else if (selectedECheckRouting is not null)
+                            {
+                                <div class="alert alert-info py-2 small mt-2 mb-0">
+                                    @ValueRow("Routing number", selectedECheckRouting)
+                                    @ValueRow("Account number", selectedECheckAccountNumber)
+                                    <div>Account type: <code>@DescribeAccountType(selectedECheckAccountType)</code></div>
+                                    @if (!string.IsNullOrWhiteSpace(selectedECheckBankName))
+                                    {
+                                        <div>Bank name: <code>@selectedECheckBankName</code></div>
+                                    }
+                                    <div class="mt-2 text-body-secondary">
+                                        Expected status: <code>@selectedECheckOutcome</code> — for eCheck,
+                                        <strong>PENDING is the success status</strong>, not AUTHORIZED;
+                                        ACH settlement is asynchronous.
+                                    </div>
+                                    <div class="text-body-secondary">
+                                        SEC code
+                                        @(string.IsNullOrWhiteSpace(selectedECheckSecCode)
+                                            ? "(omitted on this row)"
+                                            : $"({selectedECheckSecCode})")
+                                        is informational only — Unified Checkout sets it itself and never
+                                        asks the customer for one.
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
 
                 <div id="ucPaymentContainer" class="my-4">
                     <button type="button" class="btn btn-lg btn-block btn-primary" disabled="disabled">
@@ -271,11 +339,47 @@
 
     private DotNetObjectReference<StoreCheckout>? _dotNetRef;
 
-    // ── Test-card dropdown (copy/paste into the embedded Unified Checkout widget) ────────
+    // ── Test-value panels (copy/paste into the embedded Unified Checkout widget) ─────────
+    // Which panels appear is driven by the active configuration's allowedPaymentTypes, because
+    // that is exactly what decides which payment options the widget will offer the customer.
+    // A null config means the server falls back to its own default Card-only capture context,
+    // so the card panel stays visible in that case.
+    private string[] AllowedPaymentTypes =>
+        (UcSettings.SelectedConfig?.AllowedPaymentTypes ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private bool ShowCardTestValues =>
+        AllowedPaymentTypes.Length == 0
+        || AllowedPaymentTypes.Contains("PANENTRY", StringComparer.OrdinalIgnoreCase);
+
+    private bool ShowECheckTestValues =>
+        AllowedPaymentTypes.Contains("CHECK", StringComparer.OrdinalIgnoreCase);
+
+    private string? cardSelectValue;
     private string? selectedTestCardNumber;
     private string? selectedTestCardExpMonth;
     private string? selectedTestCardExpYear;
     private string? selectedTestCardCvv;
+
+    // Unlike the card lists — served from the cached ICardService/IPayerAuthTestCardService
+    // hosted services — there is no DI cache for eCheck test accounts, so they are fetched once
+    // through the CallMinAPIs gauntlet at the page's first render (kept out of the widget phase
+    // so the server-side endpoint logging never lands mid-transaction during a demo).
+    private string? echeckSelectValue;
+    private List<ECheckTestAccountDto> echeckAccounts = new();
+    private bool echeckLoadStarted;
+    private bool echeckLoadCompleted;
+    private string? echeckLoadError;
+
+    private string? selectedECheckRouting;
+    private string? selectedECheckAccountNumber;
+    private string? selectedECheckAccountType;
+    private string? selectedECheckBankName;
+    private string? selectedECheckSecCode;
+    private string? selectedECheckOutcome;
+
+    // Label of the value most recently copied, so the row that was clicked can confirm it.
+    private string? copiedLabel;
 
     private IEnumerable<IGrouping<string, PayerAuthTestCardDto>> GroupedPaCards =>
         payerAuthTestCardService.Cards
@@ -283,11 +387,72 @@
             .ThenBy(c => c.CardBrand)
             .GroupBy(c => c.TestCaseGroupLabel);
 
-    private void OnTestCardSelected(ChangeEventArgs e)
+    private IEnumerable<IGrouping<string, ECheckTestAccountDto>> GroupedECheckAccounts =>
+        echeckAccounts.GroupBy(a => string.IsNullOrWhiteSpace(a.TestCategory) ? "OTHER" : a.TestCategory!);
+
+    private string ECheckPlaceholder =>
+        echeckLoadCompleted && echeckAccounts.Count == 0
+            ? (echeckLoadError is not null ? "Test accounts unavailable" : "No test accounts found")
+            : "-- Select a test account --";
+
+    private static string DescribeAccountType(string? accountType) => accountType?.ToUpperInvariant() switch
+    {
+        "C" => "C — Checking",
+        "S" => "S — Savings",
+        "X" => "X — Corporate checking",
+        _ => accountType ?? string.Empty
+    };
+
+    // One value row with its own copy button. The widget is cross-origin, so every one of these
+    // values is otherwise transcribed by hand.
+    private RenderFragment ValueRow(string label, string? value) =>
+    @<div class="d-flex align-items-center gap-2 mb-1">
+        <span class="text-nowrap">@label:</span>
+        <code>@value</code>
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                title="Copy to clipboard" @onclick="() => CopyValue(label, value)">
+            Copy
+        </button>
+        @if (copiedLabel == label)
+        {
+            <span class="text-success">copied</span>
+        }
+    </div>;
+
+    private async Task CopyValue(string label, string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return;
+
+        var copied = await JSRuntime.InvokeAsync<bool>("storeCheckoutUC.copyText", value);
+
+        copiedLabel = copied ? label : null;
+
+        if (!copied)
+        {
+            Console.WriteLine($"[StoreCheckout] Clipboard copy failed for '{label}'.");
+        }
+    }
+
+    // Only one set of values is ever on screen, so there is no ambiguity about which one the
+    // widget's form is being filled from.
+    private void ClearSelectedTestValues()
     {
         selectedTestCardNumber = selectedTestCardExpMonth = selectedTestCardExpYear = selectedTestCardCvv = null;
 
+        selectedECheckRouting = selectedECheckAccountNumber = selectedECheckAccountType =
+            selectedECheckBankName = selectedECheckSecCode = selectedECheckOutcome = null;
+
+        copiedLabel = null;
+    }
+
+    private void OnTestCardSelected(ChangeEventArgs e)
+    {
+        ClearSelectedTestValues();
+
         var value = e.Value?.ToString();
+        cardSelectValue = value;
+        echeckSelectValue = string.Empty;
+
         if (string.IsNullOrWhiteSpace(value)) return;
 
         var parts = value.Split(':', 2);
@@ -312,6 +477,47 @@
                 selectedTestCardCvv = card.Cvv;
             }
         }
+    }
+
+    private void OnECheckAccountSelected(ChangeEventArgs e)
+    {
+        ClearSelectedTestValues();
+
+        var value = e.Value?.ToString();
+        echeckSelectValue = value;
+        cardSelectValue = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(value) || !int.TryParse(value, out var id)) return;
+
+        var account = echeckAccounts.FirstOrDefault(a => a.ECheckTestAccountId == id);
+        if (account is null) return;
+
+        selectedECheckRouting = account.RoutingNumber;
+        selectedECheckAccountNumber = account.AccountNumber;
+        selectedECheckAccountType = account.AccountType;
+        selectedECheckBankName = account.BankName;
+        selectedECheckSecCode = account.SecCode;
+        selectedECheckOutcome = account.ScenarioOutcome;
+    }
+
+    private async Task LoadECheckTestAccounts()
+    {
+        var result = await CallMinAPIs.GetECheckTestAccountsAsync();
+
+        if (result.Error is not null)
+        {
+            // A failed lookup degrades this panel only: the widget's own bank-account form is
+            // still hand-fillable, so the checkout itself is unaffected.
+            echeckLoadError = result.Error.Message ?? result.Error.Error;
+            Console.WriteLine($"[StoreCheckout] eCheck test account load failed: {echeckLoadError}");
+        }
+        else
+        {
+            echeckAccounts = result.Data ?? new List<ECheckTestAccountDto>();
+        }
+
+        echeckLoadCompleted = true;
+        StateHasChanged();
     }
 
     protected override void OnInitialized()
@@ -349,6 +555,17 @@
                     _dotNetRef, captureContextDto.Ctx, clientLibraryUrl, "ucPaymentContainer",
                     Mode == IntegrationMode.UnifiedV1ManualToken);
             }
+        }
+
+        // Fetched at first render — not when the widget phase starts — so the server console
+        // shows this reference-data call at page load instead of interleaved between the demo's
+        // /uc/v1/sessions and /pts/v2/payments logging. The config (and therefore whether CHECK
+        // is allowed) cannot change while this page is up, so firstRender is a safe gate.
+        // echeckLoadStarted is set before awaiting, so a failed load reports itself once.
+        if (firstRender && ShowECheckTestValues && !echeckLoadStarted)
+        {
+            echeckLoadStarted = true;
+            await LoadECheckTestAccounts();
         }
     }
 
@@ -592,23 +809,16 @@
 
     private void EnterTokenReceived(string tokenJwt)
     {
-        var prettyOptions = new JsonSerializerOptions { WriteIndented = true };
-
         transientTokenJwt = tokenJwt;
         transientTokenDecodedJson = tokenJwt;
 
         var payloadJson = DecodeJwtPayload(tokenJwt);
         if (payloadJson is not null)
         {
-            try
-            {
-                using var payloadDoc = JsonDocument.Parse(payloadJson);
-                transientTokenDecodedJson = JsonSerializer.Serialize(payloadDoc.RootElement, prettyOptions);
-            }
-            catch (JsonException)
-            {
-                transientTokenDecodedJson = payloadJson;
-            }
+            // DeepPretty rather than a bare WriteIndented serialize — see the note in
+            // SubmitTokenPayment. It also falls back to the raw string if this doesn't parse,
+            // which is why the JsonException guard is gone.
+            transientTokenDecodedJson = JsonLogFormatter.DeepPretty(payloadJson);
         }
 
         Console.WriteLine($"[StoreCheckout] Transient token received (manual mode) — decoded payload:\n{transientTokenDecodedJson}");
@@ -628,7 +838,6 @@
     [JSInvokable]
     public void OnUnifiedCheckoutComplete(string resultJson)
     {
-        var prettyOptions = new JsonSerializerOptions { WriteIndented = true };
         try
         {
             using var doc = JsonDocument.Parse(resultJson);
@@ -652,14 +861,13 @@
                     return;
                 }
 
-                using var payloadDoc = payloadJson is not null ? JsonDocument.Parse(payloadJson) : null;
-                completionResultJson = payloadDoc is not null
-                    ? JsonSerializer.Serialize(payloadDoc.RootElement, prettyOptions)
+                completionResultJson = payloadJson is not null
+                    ? JsonLogFormatter.DeepPretty(payloadJson)
                     : jwt;
             }
             else
             {
-                completionResultJson = JsonSerializer.Serialize(root, prettyOptions);
+                completionResultJson = JsonLogFormatter.DeepPretty(resultJson);
             }
         }
         catch (JsonException)
@@ -756,8 +964,14 @@
 
             sessionTransactions.AddTrans(sessionResponse);
 
-            completionResultJson = sessionResponse.TransactionJson?
-                .ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "{}";
+            // DeepPretty, not a bare WriteIndented serialize: this response carries a nested
+            // "cybersourceJson" string holding the raw CyberSource body, which WriteIndented
+            // leaves as one escaped single line (a unicode escape for every quote). DeepPretty expands
+            // embedded JSON strings in place and uses the relaxed encoder, so nothing is
+            // dropped — the raw body can carry fields the outer DTO doesn't model.
+            completionResultJson = sessionResponse.TransactionJson is null
+                ? "{}"
+                : JsonLogFormatter.DeepPretty(sessionResponse.TransactionJson.ToJsonString());
 
             Console.WriteLine($"[StoreCheckout] Manual transient-token payment result:\n{completionResultJson}");
 

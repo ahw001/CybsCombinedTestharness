@@ -1,0 +1,268 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/processecheck"
+
+@inject NavigationManager Navigation
+@inject ISessionTransactions sessionTransactions
+
+@* eCheck response display. AuthResponse.razor renders approval code, AVS result and card type,
+   none of which exist on an eCheck response — hence a separate page rather than a reuse. *@
+
+<h1>eCheck Response</h1>
+
+@if (!string.IsNullOrWhiteSpace(dbPersistWarning))
+{
+    <div class="container">
+        <div class="alert alert-warning" role="alert">
+            <h5 class="alert-heading">Transaction succeeded, but was not saved locally</h5>
+            <p class="mb-0">
+                CyberSource processed this eCheck. Saving it to the database afterwards failed,
+                so the response below is real but no local record of it exists.
+            </p>
+            <hr>
+            <p class="mb-0"><small>@dbPersistWarning</small></p>
+        </div>
+    </div>
+}
+
+<div class="container">
+
+    @if (status is not null)
+    {
+        <div class="alert @StatusAlertClass" role="alert">
+            <h4 class="alert-heading mb-1">@status</h4>
+            @if (IsPending)
+            {
+                <p class="mb-0">
+                    <strong>PENDING is the success case for eCheck.</strong> ACH settles
+                    asynchronously — there is no AUTHORIZED status and no approval code.
+                </p>
+            }
+        </div>
+    }
+
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title">Transaction</h3>
+                    <dl class="row mb-0">
+                        <dt class="col-sm-5">Transaction id</dt>
+                        <dd class="col-sm-7"><code>@Display(id)</code></dd>
+
+                        <dt class="col-sm-5">Status</dt>
+                        <dd class="col-sm-7">@Display(status)</dd>
+
+                        <dt class="col-sm-5">Reconciliation id</dt>
+                        <dd class="col-sm-7"><code>@Display(reconciliationId)</code></dd>
+
+                        <dt class="col-sm-5">Submitted (UTC)</dt>
+                        <dd class="col-sm-7">@Display(submitTimeUtc)</dd>
+
+                        <dt class="col-sm-5">Client reference</dt>
+                        <dd class="col-sm-7">@Display(clientReferenceCode)</dd>
+
+                        <dt class="col-sm-5">Amount</dt>
+                        <dd class="col-sm-7">@Display(totalAmount) @Display(currency)</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 mb-3">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title">Local records</h3>
+                    <dl class="row mb-0">
+                        <dt class="col-sm-6">ECheckTransactionId</dt>
+                        <dd class="col-sm-6">@Display(echeckTransactionId)</dd>
+
+                        <dt class="col-sm-6">B2cCustomerId</dt>
+                        <dd class="col-sm-6">@Display(b2cCustomerId)</dd>
+
+                        <dt class="col-sm-6">OrderId</dt>
+                        <dd class="col-sm-6">@Display(orderId)</dd>
+
+                        <dt class="col-sm-6">ECheckPaymentInstrumentId</dt>
+                        <dd class="col-sm-6">@Display(echeckPaymentInstrumentId)</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (hasTokens)
+    {
+        <div class="row">
+            <div class="col-12 mb-3">
+                <div class="card border-success">
+                    <div class="card-body">
+                        <h3 class="card-title">Tokens created</h3>
+                        <dl class="row mb-2">
+                            @if (customerTokenId is not null)
+                            {
+                                <dt class="col-sm-3">customer.id</dt>
+                                <dd class="col-sm-9"><code>@customerTokenId</code></dd>
+                            }
+                            @if (paymentInstrumentId is not null)
+                            {
+                                <dt class="col-sm-3">paymentInstrument.id</dt>
+                                <dd class="col-sm-9"><code>@paymentInstrumentId</code></dd>
+                            }
+                            @if (instrumentIdentifierId is not null)
+                            {
+                                <dt class="col-sm-3">instrumentIdentifier.id</dt>
+                                <dd class="col-sm-9"><code>@instrumentIdentifierId</code></dd>
+                            }
+                        </dl>
+                        @if (customerTokenId is not null)
+                        {
+                            <a class="btn btn-success" href="echecktokencheckout">
+                                Use this token for a debit
+                            </a>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="row">
+        <div class="col-12 mb-3">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title">Raw response</h3>
+                    <div style="overflow-x: auto;">
+                        <pre class="mb-0"><code>@rawJson</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mb-5">
+        <a class="btn btn-dark" href="echeckcheckout">New eCheck Checkout</a>
+        <a class="btn btn-outline-dark" href="echecktokencheckout">eCheck Token Checkout</a>
+    </div>
+</div>
+
+@code {
+    private SessionTransJson? sessionTransJson;
+
+    private string? id;
+    private string? status;
+    private string? reconciliationId;
+    private string? submitTimeUtc;
+    private string? clientReferenceCode;
+    private string? totalAmount;
+    private string? currency;
+
+    private string? customerTokenId;
+    private string? paymentInstrumentId;
+    private string? instrumentIdentifierId;
+
+    private string? echeckTransactionId;
+    private string? b2cCustomerId;
+    private string? orderId;
+    private string? echeckPaymentInstrumentId;
+
+    private string rawJson = string.Empty;
+    private string dbPersistWarning = string.Empty;
+
+    private bool hasTokens =>
+        customerTokenId is not null || paymentInstrumentId is not null || instrumentIdentifierId is not null;
+
+    private bool IsPending => string.Equals(status, "PENDING", StringComparison.OrdinalIgnoreCase);
+
+    private string StatusAlertClass => IsPending ? "alert-success" : "alert-secondary";
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+
+    protected override void OnInitialized()
+    {
+        sessionTransJson = sessionTransactions.Transactions.LastOrDefault();
+
+        if (sessionTransJson?.TransactionJson is null)
+        {
+            Navigation.NavigateTo("/errorhandler");
+            return;
+        }
+
+        JsonNode node = sessionTransJson.TransactionJson;
+
+        // UnsafeRelaxedJsonEscaping matters here: without it the nested cybersourceJson string
+        // renders every quote as " and the raw response becomes unreadable on screen.
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+        rawJson = node.ToJsonString(options);
+
+        dbPersistWarning = ExtractDbPersistWarning(node);
+
+        id = Read(node, "id");
+        status = Read(node, "status");
+        reconciliationId = Read(node, "reconciliationId");
+        submitTimeUtc = Read(node, "submitTimeUtc");
+        clientReferenceCode = node["clientReferenceInformation"]?["code"]?.ToString();
+        totalAmount = node["orderInformation"]?["amountDetails"]?["totalAmount"]?.ToString();
+        currency = node["orderInformation"]?["amountDetails"]?["currency"]?.ToString();
+
+        JsonNode? tokenInformation = node["tokenInformation"];
+        customerTokenId = tokenInformation?["customer"]?["id"]?.ToString();
+        paymentInstrumentId = tokenInformation?["paymentInstrument"]?["id"]?.ToString();
+        instrumentIdentifierId = tokenInformation?["instrumentIdentifier"]?["id"]?.ToString();
+
+        // Written by the server after a successful persist — absent when persistence failed,
+        // in which case dbPersistWarning above carries the reason.
+        echeckTransactionId = Read(node, "ECheckTransactionId");
+        b2cCustomerId = Read(node, "B2cCustomerId");
+        orderId = Read(node, "OrderId");
+        echeckPaymentInstrumentId = Read(node, "ECheckPaymentInstrumentId");
+    }
+
+    private static string? Read(JsonNode node, string property)
+    {
+        if (node is not JsonObject obj) return null;
+        return obj.TryGetPropertyValue(property, out JsonNode? value) ? value?.ToString() : null;
+    }
+
+    /// <summary>
+    /// Pulls the "payment succeeded but persisting it failed" signal out of the raw response.
+    /// </summary>
+    /// <remarks>
+    /// Same extractor as FollowOnResponse.razor. The server reports this alongside a SUCCESSFUL
+    /// payment and deliberately never under the key "error" — JsonErrorExtractor treats an
+    /// "error" property as a failed transaction, which this is not. The value is a plain string
+    /// from api/echeck/debit but a nested ErrorObject from api/unified/unifiedpayment, so the
+    /// kind is guarded before reading rather than assumed.
+    /// </remarks>
+    private static string ExtractDbPersistWarning(JsonNode? node)
+    {
+        if (node is not JsonObject obj)
+        {
+            return string.Empty;
+        }
+
+        foreach (string key in new[] { "dbPersistError", "dbError" })
+        {
+            if (!obj.TryGetPropertyValue(key, out JsonNode? value) || value is null)
+            {
+                continue;
+            }
+
+            string text = value is JsonObject errorObject
+                ? errorObject["message"]?.ToString()
+                    ?? errorObject["error"]?.ToString()
+                    ?? errorObject.ToJsonString()
+                : value.ToString();
+
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+        }
+
+        return string.Empty;
+    }
+}

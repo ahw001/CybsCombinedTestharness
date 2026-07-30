@@ -1,3 +1,5 @@
+using CybsClient.Services.DTOs;
+
 namespace CybsClient.Services.ApiLogging
 {
     public enum ApiLogKind { Request, Error }
@@ -22,5 +24,19 @@ namespace CybsClient.Services.ApiLogging
         public ApiLogKind Kind { get; set; } = ApiLogKind.Request;
         public bool IsError { get; set; }
         public string? ErrorMessage { get; set; }
+        // The server->CyberSource exchange(s) behind this request, fetched from
+        // GET /api/cybslog/{id} when the response carried X-Cybs-Log-Id. When present and no
+        // error occurred, the sidebar shows these INSTEAD of the client<->server bodies.
+        public IReadOnlyList<CybsExchangeDto>? CybsExchanges { get; set; }
+        // True when the 2XX response body carried a non-null root-level "error" property —
+        // the server's ErrorObject convention for application-level failures.
+        public bool HasEmbeddedError { get; set; }
+
+        // One error test for the whole entry: HTTP/transport error, embedded 2XX ErrorObject,
+        // or any CyberSource exchange fault / non-2xx CyberSource status.
+        public bool HasAnyError =>
+            IsError
+            || HasEmbeddedError
+            || (CybsExchanges?.Any(x => x.IsError || x.FaultMessage is not null) ?? false);
     }
 }

@@ -39,6 +39,10 @@ namespace CybsClient.Model
         FLEX_CHECKOUT_PAYMENT,
         FLEX_PA_SETUP,
         TRANS_TOKEN_INFORMATION,
+        // eCheck (ACH). One value covers all four documented flows — debit, recurring debit,
+        // token create with transaction, and token debit — because they differ only in which
+        // B2cCustomer fields are populated, not in which endpoint they hit.
+        ECHECK_DEBIT,
         INVOICE_CREATE,
         PA_SETUP,
         PA_ENROLL,

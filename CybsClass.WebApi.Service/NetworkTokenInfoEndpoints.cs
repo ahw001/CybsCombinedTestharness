@@ -42,5 +42,17 @@ public static class NetworkTokenInfoEndpoints
             return Results.Ok(networkTokenInfoDtos);
         })
         .WithName("GetNetworkTokenInfoById");
+
+        // NOTE the key here is PaymentTokenId - the NetworkTokenInfo primary key - which is
+        // NOT what GET /{id} above takes; that one looks up by PaymentCardId and can return
+        // several tokens. The placeholder is named for the parameter deliberately: ASP.NET
+        // Core binds route values by name, and a mismatch silently falls back to query-string
+        // binding instead of failing (that is what produced 15 broken routes in this service).
+        group.MapPut("/{paymenttokenid}", async ([FromRoute] int paymenttokenid, NetworkTokenInfoDto networkTokenInfoDto) =>
+        {
+            return (await DBNetworkTokenServices.UpdateNetworkToken(paymenttokenid, networkTokenInfoDto))
+                .ToOkOrNotFound($"No NetworkTokenInfo found with PaymentTokenId {paymenttokenid} to update.");
+        })
+        .WithName("UpdateNetworkToken");
     }
 }

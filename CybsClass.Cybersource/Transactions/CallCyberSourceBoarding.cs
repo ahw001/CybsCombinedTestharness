@@ -29,6 +29,7 @@ namespace CybsClass.Cybersource.Transactions
             requestHost = BoardingCredentials.GetRequestHost();
             TaskStatus responseCode;
             JsonObject? jsonObject = [];
+            CybsExchange? exch = null;
 
             try
             {
@@ -52,13 +53,14 @@ namespace CybsClass.Cybersource.Transactions
 
                     // POST FOR CYBERSOURCE TRANSACTION ****************************
 
-                    CybsCallContext.RecordTargetUrl("https://" + requestHost + resource);
+                    exch = CybsCallContext.StartExchange("GET", "https://" + requestHost + resource, null);
                     var response = await client.GetAsync("https://" + requestHost + resource);
 
                     // POST FOR CYBERSOURCE TRANSACTION ****************************
 
                     responseCode = (TaskStatus)response.StatusCode;
                     string responseContent = await response.Content.ReadAsStringAsync();
+                    exch.Complete((int)response.StatusCode, responseContent);
 
                     jsonObject = JsonSerializer.Deserialize<JsonObject>(responseContent);
 
@@ -71,6 +73,7 @@ namespace CybsClass.Cybersource.Transactions
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
+                exch?.MarkError(e.Message);
                 jsonObject = new JsonObject();
                 jsonObject["error"] = e.Message;
                 return jsonObject;

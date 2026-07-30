@@ -38,7 +38,7 @@
                 <div class="row g-2 align-items-end">
                     <div class="col-auto">
                         <label class="form-label small">Configuration</label>
-                        <select class="form-select" @bind="selectedConfigId">
+                        <select class="form-select" @bind="selectedConfigId" @bind:after="CancelReview">
                             @foreach (var c in savedConfigs)
                             {
                                 <option value="@c.UnifiedCheckoutConfigurationId">@c.Name</option>
@@ -64,6 +64,52 @@
             }
         </div>
     </div>
+
+    @if (reviewing is not null)
+    {
+        <div class="card border-primary mb-4">
+            <div class="card-header bg-primary-subtle">
+                <strong>Review Configuration: "@reviewing.Name"</strong>
+                <span class="text-muted small ms-2">
+                    These settings will drive the store's Unified Checkout capture context.
+                </span>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-3">
+                    @foreach (var (label, value) in ReviewFields(reviewing))
+                    {
+                        <dt class="col-sm-3">@label</dt>
+                        <dd class="col-sm-9">
+                            @if (string.IsNullOrWhiteSpace(value.Text))
+                            {
+                                <span class="text-muted fst-italic">@value.Placeholder</span>
+                            }
+                            else
+                            {
+                                @value.Text
+                            }
+                        </dd>
+                    }
+                </dl>
+
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    @foreach (var (label, enabled) in ReviewFlags(reviewing))
+                    {
+                        <span class="badge @(enabled ? "text-bg-success" : "text-bg-secondary")">
+                            @label: @(enabled ? "Yes" : "No")
+                        </span>
+                    }
+                </div>
+
+                <button type="button" class="btn btn-primary" @onclick="ConfirmUseConfig">
+                    Continue to Store Checkout
+                </button>
+                <button type="button" class="btn btn-outline-secondary ms-2" @onclick="CancelReview">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    }
 
     <div class="card">
         <div class="card-body">
@@ -223,6 +269,10 @@
     private string? error;
     private string? statusMessage;
 
+    // Non-null while the read-only "Use This Config" review panel is open. The configuration is
+    // NOT active for the store checkout until ConfirmUseConfig() runs.
+    private UnifiedCheckoutConfigurationDto? reviewing;
+
     private HashSet<string> selectedPaymentTypes = new(AllPaymentTypes.Where(t => t == "PANENTRY"));
     private HashSet<string> selectedCardNetworks = new(AllCardNetworks);
 
@@ -267,6 +317,8 @@
         if (isChecked) set.Add(value); else set.Remove(value);
     }
 
+    // Opens the read-only review panel so the settings are visible before the configuration is
+    // committed to the store checkout. Deliberately does not call UcSettings.SetConfig or navigate.
     private void UseSelectedConfig()
     {
         var config = savedConfigs.FirstOrDefault(c => c.UnifiedCheckoutConfigurationId == selectedConfigId);
@@ -275,15 +327,62 @@
             error = "Select a configuration first.";
             return;
         }
-        UcSettings.SetConfig(config);
+        reviewing = config;
+        statusMessage = null;
+        error = null;
+    }
+
+    // The only place the reviewed configuration becomes active for /store/checkout.
+    private void ConfirmUseConfig()
+    {
+        if (reviewing is null)
+        {
+            error = "Select a configuration first.";
+            return;
+        }
+        UcSettings.SetConfig(reviewing);
         error = null;
         Navigation.NavigateTo("/store/checkout");
     }
+
+    private void CancelReview() => reviewing = null;
+
+    // Scalar fields for the review panel, each with the placeholder shown when it is blank.
+    private static IEnumerable<(string Label, (string? Text, string Placeholder) Value)> ReviewFields(
+        UnifiedCheckoutConfigurationDto c) => new (string, (string?, string))[]
+    {
+        ("Description",          (c.Description,          "(none)")),
+        ("Country",              (c.Country,              "(default)")),
+        ("Locale",               (c.Locale,               "(default)")),
+        ("Allowed Payment Types",(c.AllowedPaymentTypes,  "(merchant defaults)")),
+        ("Allowed Card Networks",(c.AllowedCardNetworks,  "(merchant defaults)")),
+        ("Button Type",          (c.ButtonType,           "(default — \"Checkout with card\")")),
+        ("Billing Type",         (c.BillingType,          "(default)")),
+        ("actionTokenTypes",     (c.TmsTokenTypes,        "(merchant defaults)")),
+        ("Complete Mandate Type",(c.CompleteMandateType,  "(none — Business Center default governs)"))
+    };
+
+    // Boolean flags for the review panel, rendered as Bootstrap badges.
+    private static IEnumerable<(string Label, bool Enabled)> ReviewFlags(
+        UnifiedCheckoutConfigurationDto c) => new (string, bool)[]
+    {
+        ("Request Shipping",            c.RequestShipping),
+        ("Request Email",               c.RequestEmail),
+        ("Request Phone",               c.RequestPhone),
+        ("Request Save Credentials",    c.RequestSaveCredentials),
+        ("Show Confirmation Step",      c.ShowConfirmationStep),
+        ("Show Accepted Network Icons", c.ShowAcceptedNetworkIcons),
+        ("Send TOKEN_CREATE",           c.EnableTms),
+        ("Enable 3DS",                  c.Enable3ds),
+        ("Enable Decision Manager",     c.EnableDecisionManager)
+    };
 
     private void EditSelectedConfig()
     {
         var config = savedConfigs.FirstOrDefault(c => c.UnifiedCheckoutConfigurationId == selectedConfigId);
         if (config is null) return;
+
+        reviewing = null;
 
         editing = new UnifiedCheckoutConfigurationDto
         {
@@ -325,8 +424,13 @@
             return;
         }
         statusMessage = "Configuration deleted.";
+        reviewing = null;
+
+        // Compare against the deleted id BEFORE resetting the selection — testing it after
+        // selectedConfigId = 0 always compared against 0, so the active config was never cleared.
+        int deletedId = selectedConfigId;
         selectedConfigId = 0;
-        if (UcSettings.SelectedConfig?.UnifiedCheckoutConfigurationId == selectedConfigId)
+        if (UcSettings.SelectedConfig?.UnifiedCheckoutConfigurationId == deletedId)
         {
             UcSettings.SetConfig(null);
         }
@@ -360,11 +464,14 @@
             return;
         }
 
-        statusMessage = $"Saved \"{result.Data.Name}\".";
-        error = null;
         selectedConfigId = result.Data.UnifiedCheckoutConfigurationId;
         await LoadConfigs();
         EditSelectedConfig();
+
+        // Set the success message AFTER EditSelectedConfig() — it clears statusMessage (correct when
+        // the user clicks Edit themselves), which used to swallow this alert before it ever rendered.
+        statusMessage = $"Saved \"{result.Data.Name}\".";
+        error = null;
     }
 
     private static HashSet<string> SplitCsv(string? csv) =>

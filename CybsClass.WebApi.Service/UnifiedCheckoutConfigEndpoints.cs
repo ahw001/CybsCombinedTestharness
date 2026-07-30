@@ -36,14 +36,24 @@ public static class UnifiedCheckoutConfigEndpoints
         group.MapGet("/{id:int}", async ([FromRoute] int id) =>
         {
             Console.WriteLine($"\n\n[UnifiedCheckoutConfig] GET /api/uc-config/{id}");
-            var entity = await DBUnifiedCheckoutConfigurationServices.GetByIdAsync(id);
-            if (entity is null)
+            var result = await DBUnifiedCheckoutConfigurationServices.GetByIdAsync(id);
+
+            // A database failure and a missing row are different answers and must not share
+            // one "not found" response - the caller can retry the first but not the second.
+            if (!result.Ok)
+            {
+                Console.WriteLine($"[UnifiedCheckoutConfig] RESPONSE ERROR: {JsonSerializer.Serialize(result.Error, _logOptions)}");
+                return Results.Json(result.Error);
+            }
+
+            if (result.Value is null)
             {
                 var err = BuildError("NOT_FOUND", $"UnifiedCheckoutConfiguration {id} not found.", "Check the ID.");
                 Console.WriteLine($"[UnifiedCheckoutConfig] RESPONSE ERROR: {JsonSerializer.Serialize(err, _logOptions)}");
                 return Results.Json(err);
             }
-            var dto = DBUnifiedCheckoutConfigurationServices.ToDto(entity);
+
+            var dto = DBUnifiedCheckoutConfigurationServices.ToDto(result.Value);
             Console.WriteLine($"[UnifiedCheckoutConfig] RESPONSE: {JsonSerializer.Serialize(dto, _logOptions)}");
             return Results.Json(dto);
         }).WithName("GetUnifiedCheckoutConfigById");

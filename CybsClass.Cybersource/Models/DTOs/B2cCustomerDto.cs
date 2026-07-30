@@ -120,6 +120,46 @@ public class B2cCustomerDto
     [JsonPropertyName("cardType")]
     public string? CardType { get; set; } = null!;
 
+    // ==================== eCheck (ACH) ====================
+    // Populated only by the eCheck pages (/echeckcheckout, /echecktokencheckout). Every other
+    // caller leaves these null/false and the card path is unaffected.
+    //
+    // The matching properties on the client's B2cCustomer must use these exact JSON names —
+    // System.Text.Json matches case-sensitively by default and a casing drift binds silently to
+    // null rather than erroring.
+
+    [JsonPropertyName("routingNumber")]
+    public string? RoutingNumber { get; set; }
+
+    [JsonPropertyName("bankAccountNumber")]
+    public string? BankAccountNumber { get; set; }
+
+    // C = checking, S = savings, X = corporate checking
+    [JsonPropertyName("bankAccountType")]
+    public string? BankAccountType { get; set; }
+
+    // ccd | ppd | tel | web — null omits processingInformation.bankTransferOptions entirely
+    [JsonPropertyName("secCode")]
+    public string? SecCode { get; set; }
+
+    [JsonPropertyName("isRecurring")]
+    public bool IsRecurring { get; set; }
+
+    [JsonPropertyName("firstRecurringPayment")]
+    public bool FirstRecurringPayment { get; set; }
+
+    [JsonPropertyName("createECheckToken")]
+    public bool CreateECheckToken { get; set; }
+
+    // Set on the token-debit flow — becomes paymentInformation.customer.id, and the request then
+    // carries no bank node at all.
+    [JsonPropertyName("eCheckCustomerTokenId")]
+    public string? ECheckCustomerTokenId { get; set; }
+
+    [JsonPropertyName("bankName")]
+    public string? BankName { get; set; }
+    // ======================================================
+
     [JsonPropertyName("transientToken")]
     public string? TransientToken { get; set; }
 

@@ -41,6 +41,42 @@
 
 window.storeCheckoutUC = window.storeCheckoutUC || {};
 
+// ── Clipboard helper for the test-value panels ───────────────────────────────────────────
+// The CyberSource widget renders inside cross-origin iframes, so a test card number or test
+// bank account can only be transferred into it by hand. This copies one value on click.
+// navigator.clipboard requires a secure context — https://localhost qualifies, as does every
+// deployed origin — and the execCommand path covers anything that does not.
+window.storeCheckoutUC.copyText = async function (text) {
+    if (!text) {
+        return false;
+    }
+
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (e) {
+        console.warn("[StoreCheckoutUC] navigator.clipboard.writeText failed, falling back:", e);
+    }
+
+    try {
+        var textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.setAttribute('readonly', '');
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        var copied = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return copied;
+    } catch (e) {
+        console.error("[StoreCheckoutUC] clipboard fallback failed:", e);
+        return false;
+    }
+};
+
 // manualToken=true asks the v1 SDK for createCheckout({ autoProcessing: false }) — the UC
 // guide's "Flow 3 / No Service Orchestration" mode: mount() then resolves with the raw
 // transientTokenJwt and NOTHING is processed; every follow-on service is the merchant's own

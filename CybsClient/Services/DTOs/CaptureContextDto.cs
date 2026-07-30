@@ -13,10 +13,18 @@ public class CaptureContextDto
     [JsonPropertyName("ctx")]
     public string? Ctx { get; set; }
 
-    [JsonPropertyName("b2cCustomerId")]
+    // These two must stay PascalCase to match what the server actually emits - its
+    // CaptureContextDto declares [JsonPropertyName("B2cCustomerId")] and ("OrderId"),
+    // unlike every other property here, which is camelCase. The pages deserialize this with
+    // a bare JsonSerializer.Deserialize<CaptureContextDto>(json), and System.Text.Json
+    // matches names case-SENSITIVELY by default, so camelCase names here bound to nothing:
+    // both ids arrived null, PersistUnifiedAuth's Convert.ToInt32(null) produced 0, and every
+    // legacy Unified Checkout payment died on FK_PaymentCardInfo_B2cCustomers after the card
+    // had already been charged.
+    [JsonPropertyName("B2cCustomerId")]
     public string? B2cCustomerId { get; set; }
 
-    [JsonPropertyName("orderId")]
+    [JsonPropertyName("OrderId")]
     public string? OrderId { get; set; }
 
     [JsonPropertyName("clientReferenceInformation")]

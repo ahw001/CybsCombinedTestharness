@@ -34,6 +34,11 @@
                     {
                         <AccountDetailsSection Customer="Customer" PaymentMethods="PaymentMethods" />
                     }
+
+                    @if (SafeFormElements.Contains("ShowBankAccountDetails"))
+                    {
+                        <BankAccountSection Customer="Customer" />
+                    }
                     <hr class="my-4">
 
                     @if (SafeFormElements.Contains("ShowInvoice"))

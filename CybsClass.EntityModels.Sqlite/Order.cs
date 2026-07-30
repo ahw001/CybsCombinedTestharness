@@ -56,6 +56,9 @@ public partial class Order
     [InverseProperty("Order")]
     public virtual ICollection<ApplePayTransaction> ApplePayTransactions { get; set; } = new List<ApplePayTransaction>();
 
+    [InverseProperty("Order")]
+    public virtual ICollection<ECheckTransaction> ECheckTransactions { get; set; } = new List<ECheckTransaction>();
+
     [ForeignKey("B2cCustomerId")]
     [InverseProperty("Orders")]
     public virtual B2cCustomer? B2cCustomer { get; set; }

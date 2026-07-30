@@ -1,0 +1,319 @@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@page "/echeckcheckout"
+
+@inject NavigationManager Navigation
+
+@inject ICartService cartService
+@inject ISessionTransactions sessionTransactions
+
+<title>eCheck Checkout</title>
+
+<div class="py-1 text-center">
+    <h2>eCheck Checkout</h2>
+    <p class="text-body-secondary mb-0">
+        Bank-account debit via <code>POST /pts/v2/payments</code> with
+        <code>paymentType.name = "check"</code>. A successful eCheck returns
+        <strong>PENDING</strong>, not AUTHORIZED — settlement is asynchronous.
+    </p>
+</div>
+
+<hr class="my-4">
+
+<div>
+    <div class="row g-5">
+
+        @if (Show)
+        {
+            <FormSection Title="eCheck Options" HelpText="">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="echeckRecurring"
+                                   @bind="isRecurring" />
+                            <label class="form-check-label" for="echeckRecurring">
+                                <b>Recurring debit</b>
+                            </label>
+                        </div>
+                        <small class="text-body-secondary">
+                            Sends <code>commerceIndicator: "recurring"</code> plus
+                            <code>recurringOptions</code>.
+                        </small>
+
+                        @if (isRecurring)
+                        {
+                            <div class="form-check mt-2 ms-3">
+                                <input type="checkbox" class="form-check-input" id="echeckFirstRecurring"
+                                       @bind="firstRecurringPayment" />
+                                <label class="form-check-label" for="echeckFirstRecurring">
+                                    First recurring payment
+                                </label>
+                            </div>
+                            <small class="text-body-secondary ms-3">
+                                Untick for a subsequent payment in the series.
+                            </small>
+                        }
+                    </div>
+
+                    <div class="col-md-8">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="echeckCreateToken"
+                                   @bind="createToken" />
+                            <label class="form-check-label" for="echeckCreateToken">
+                                <b>Create a TMS token with this transaction</b>
+                            </label>
+                        </div>
+                        <small class="text-body-secondary">
+                            Sends <code>actionList: ["TOKEN_CREATE"]</code>. The returned token is saved
+                            and becomes selectable on
+                            <a href="echecktokencheckout">eCheck Token Checkout</a>.
+                        </small>
+
+                        @if (createToken)
+                        {
+                            <div class="alert alert-info py-2 mt-2 mb-2" role="alert">
+                                <small>
+                                    <b>SEC code is dropped from this request.</b> Verified live on this
+                                    account: <code>bankTransferOptions.secCode</code> sent alongside
+                                    <code>TOKEN_CREATE</code> is rejected with
+                                    <code>INVALID_DATA</code> naming that field — for every SEC value
+                                    tried, so it is the combination, not the value.
+                                </small>
+                            </div>
+
+                            <div class="d-flex flex-wrap gap-3 mt-2 ms-3">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="tokenCustomer"
+                                           @bind="tokenCustomer" />
+                                    <label class="form-check-label" for="tokenCustomer">customer</label>
+                                </div>
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="tokenPaymentInstrument"
+                                           @bind="tokenPaymentInstrument" />
+                                    <label class="form-check-label" for="tokenPaymentInstrument">paymentInstrument</label>
+                                </div>
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="tokenInstrumentIdentifier"
+                                           @bind="tokenInstrumentIdentifier" />
+                                    <label class="form-check-label" for="tokenInstrumentIdentifier">instrumentIdentifier</label>
+                                </div>
+                            </div>
+                            <small class="text-body-secondary ms-3 d-block">
+                                <b>customer</b> becomes <code>paymentInformation.customer.id</code> on the
+                                token debit, but it is not sufficient on its own — verified live: a
+                                customer-only token retrieves successfully
+                                (<code>TOKEN_RETRIEVE: SUCCESS</code>) and the debit still fails
+                                <code>MISSING_FIELD</code> on every <code>paymentInformation.bank.*</code>
+                                field, because there is no payment instrument holding the account.
+                                Keep <b>paymentInstrument</b> ticked for a debitable token.
+                            </small>
+
+                            @if (tokenCustomer && !tokenPaymentInstrument)
+                            {
+                                <div class="alert alert-warning py-2 mt-2 ms-3 mb-0" role="alert">
+                                    <small>
+                                        This token will not be debitable — tick
+                                        <b>paymentInstrument</b> as well.
+                                    </small>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </FormSection>
+
+            <CustomerMasterComponent ButtonText="Submit eCheck"
+                                     FormElements="ECheckFormElements"
+                                     FormCustomer="b2CCustomer"
+                                     ValidSubmit="Submit" />
+        }
+
+        <FormSection>
+            @if (error is not null)
+            {
+                <div class="col-6">
+                    <strong class="alert-danger">@error</strong>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Follow on Actions
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="echeckcheckout">New eCheck Checkout</a></li>
+                        <li><a class="dropdown-item" href="echecktokencheckout">eCheck Token Checkout</a></li>
+                    </ul>
+                </div>
+            }
+        </FormSection>
+    </div>
+</div>
+
+@code {
+    private bool Show = true;
+    private bool containsError = false;
+
+    // No "ShowAccountDetails" — this is a bank account, not a card. No "ShowAuthCapture" either:
+    // an eCheck debit has no separate capture step to mark.
+    List<string> ECheckFormElements = new List<string>
+    {
+        "ShowMainForm", "ShowBilling", "ShowBankAccountDetails", "ShowDefaults", "ShowCart"
+    };
+
+    private bool isRecurring;
+    private bool firstRecurringPayment = true;
+    private bool createToken;
+
+    // All three default on. A customer-only token is accepted by CyberSource but cannot then be
+    // debited — the token debit comes back MISSING_FIELD on paymentInformation.bank.* because no
+    // payment instrument holds the account. Verified live 2026-07-29.
+    private bool tokenCustomer = true;
+    private bool tokenPaymentInstrument = true;
+    private bool tokenInstrumentIdentifier = true;
+
+    private string? error;
+
+    private B2cCustomer b2CCustomer = new();
+
+    private SessionTransJson sessionTransJson = new();
+
+    private static List<BasicErrorInfo> basicErrorInfos = new List<BasicErrorInfo>();
+
+    protected override void OnInitialized()
+    {
+        if (cartService.Cart is not null && cartService.Cart.Count > 0)
+        {
+            b2CCustomer.Cart = cartService.Cart.ToList();
+            b2CCustomer.TotalAmount = cartService.Total;
+        }
+
+        base.OnInitialized();
+    }
+
+    private async Task Submit(B2cCustomer submittedCustomer)
+    {
+        try
+        {
+            sessionTransJson.OriginalTransactionType = CcTransactionTypes.ECHECK_DEBIT;
+            sessionTransJson.CurrentTransactionType = CcTransactionTypes.ECHECK_DEBIT;
+
+            // The page-level eCheck options live outside CustomerMasterComponent, so they are
+            // applied to the customer it hands back rather than bound into it directly.
+            submittedCustomer.IsECheck = true;
+            submittedCustomer.RequiresBankDetails = true;
+            submittedCustomer.RequiresCardDetails = false;
+            submittedCustomer.IsRecurring = isRecurring;
+            submittedCustomer.FirstRecurringPayment = firstRecurringPayment;
+            submittedCustomer.CreateECheckToken = createToken;
+
+            // This page never sends a stored token — that is the other page's job. Clearing it
+            // guarantees the server builds a bank-account request, not a token one.
+            submittedCustomer.ECheckCustomerTokenId = null;
+
+            if (createToken)
+            {
+                // CyberSource rejects bankTransferOptions.secCode outright when the request also
+                // carries actionList: ["TOKEN_CREATE"] — INVALID_DATA naming that exact field,
+                // for every SEC value tried, so it is the combination and not the value.
+                // Dropping it here is what the info banner above tells the user will happen.
+                submittedCustomer.SecCode = null;
+
+                var tokenTypes = new List<string>();
+                if (tokenCustomer) tokenTypes.Add("customer");
+                if (tokenPaymentInstrument) tokenTypes.Add("paymentInstrument");
+                if (tokenInstrumentIdentifier) tokenTypes.Add("instrumentIdentifier");
+
+                // "customer" is what the token-debit flow actually needs, so an empty selection
+                // falls back to it rather than sending an empty actionTokenTypes array.
+                submittedCustomer.ActionTokenTypes = tokenTypes.Count > 0
+                    ? tokenTypes.ToArray()
+                    : new[] { "customer" };
+            }
+            else
+            {
+                // The card checkout defaults this to paymentInstrument; carrying that into an
+                // eCheck request would ask CyberSource to tokenize when we did not request it.
+                submittedCustomer.ActionTokenTypes = null;
+            }
+
+            if (submittedCustomer.TotalAmount == 0.00m && submittedCustomer.Cart is not null)
+            {
+                foreach (var item in submittedCustomer.Cart)
+                {
+                    submittedCustomer.TotalAmount += item.UnitPrice;
+                }
+            }
+
+            var options = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            };
+            string jsonString = JsonSerializer.Serialize(submittedCustomer, options);
+
+            SessionTransJson sessionResponse = await CallMinAPIs.SubmitForFollowOn(
+                jsonString, sessionTransactions, (CcTransactionTypes)sessionTransJson.CurrentTransactionType!);
+
+            if (sessionResponse is null)
+            {
+                HandleErrorAndRedirect(null, "Session Response is null");
+                return;
+            }
+
+            if (sessionResponse.TransactionStatus == "error")
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            if (sessionResponse.TransactionJson is not null)
+            {
+                basicErrorInfos = JsonErrorExtractor.ExtractErrorObjects(sessionResponse.TransactionJson.ToString());
+
+                containsError = basicErrorInfos.Any(e =>
+                    AppErrorConfig.ErrorKeywords.Any(k =>
+                        $"{e.Status} {e.Reason} {e.Message} {e.Action}"
+                            .ToLowerInvariant()
+                            .Contains(k.ToLowerInvariant())
+                    )
+                );
+            }
+
+            if (containsError)
+            {
+                HandleErrorAndRedirect(sessionResponse);
+                return;
+            }
+
+            sessionTransactions.AddTrans(sessionResponse!);
+            cartService.DeleteAll();
+            Navigation.NavigateTo("/processecheck");
+        }
+        catch (Exception ex)
+        {
+            error = "Error: " + ex.Message;
+            SessionTransJson sessionResponse = new();
+            sessionResponse!.error = error;
+            sessionTransactions.AddTrans(sessionResponse);
+            Navigation.NavigateTo("/errorhandler");
+        }
+    }
+
+    private void HandleErrorAndRedirect(SessionTransJson? response, string fallbackErrorMessage = "Unknown error")
+    {
+        Show = false;
+        StateHasChanged();
+
+        var errorMessage = response?.error ?? fallbackErrorMessage;
+        var errorJsonState = response?.JsonTransactionStateValues ?? TransactionStateValues.Error;
+
+        var errorResponse = response ?? new SessionTransJson
+        {
+            JsonTransactionStateValues = errorJsonState,
+            error = errorMessage,
+            TransactionStatus = "error"
+        };
+
+        sessionTransactions.AddTrans(errorResponse);
+        Navigation.NavigateTo("/errorhandler");
+    }
+}
