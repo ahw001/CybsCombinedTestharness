@@ -109,17 +109,42 @@ namespace CybsClass.WebApi.Service.Services.ApplePay
             return Encoding.UTF8.GetString(plaintext, 0, len);
         }
 
+        /// <summary>
+        /// NIST SP 800-56A §5.8.1 Concatenation KDF, single round, SHA-256:
+        ///
+        ///     SHA256( counter(0x00000001) || Z || OtherInfo )
+        ///     OtherInfo = AlgorithmID || PartyUInfo || PartyVInfo
+        ///
+        /// Apple specifies those three fields exactly (Payment Token Format Reference,
+        /// "Restoring the Symmetric Key"):
+        ///   AlgorithmID — the LENGTH BYTE 0x0D followed by ASCII "id-aes256-GCM"
+        ///   PartyUInfo  — the ASCII string "Apple"
+        ///   PartyVInfo  — SHA-256 of the merchant identifier
+        ///
+        /// Both the 0x0D length prefix and the "Apple" PartyUInfo were missing here until
+        /// 2026-08-05, so every real Apple token failed AES-GCM tag verification with
+        /// "mac check in GCM failed". Verified against a genuine EC_v1 token: omitting EITHER
+        /// field still fails, so both are load-bearing.
+        ///
+        /// Note the original round-trip unit test could not catch this — it encrypted its test
+        /// payload with this same method before decrypting it, so any systematic deviation from
+        /// Apple's format cancelled out. Only a real Apple token discriminates. Do not treat a
+        /// self-generated round-trip as validation of this function.
+        /// </summary>
         private static byte[] DeriveSymmetricKey(byte[] sharedSecret, string merchantIdentifier)
         {
             byte[] merchantIdHash = SHA256.HashData(Encoding.UTF8.GetBytes(merchantIdentifier ?? string.Empty));
             byte[] algorithmId = Encoding.ASCII.GetBytes("id-aes256-GCM");
+            byte[] partyUInfo = Encoding.ASCII.GetBytes("Apple");
             byte[] counter = { 0x00, 0x00, 0x00, 0x01 };
 
             using var buffer = new MemoryStream();
             buffer.Write(counter, 0, counter.Length);
             buffer.Write(sharedSecret, 0, sharedSecret.Length);
+            buffer.WriteByte((byte)algorithmId.Length);          // 0x0D — AlgorithmID length prefix
             buffer.Write(algorithmId, 0, algorithmId.Length);
-            buffer.Write(merchantIdHash, 0, merchantIdHash.Length);
+            buffer.Write(partyUInfo, 0, partyUInfo.Length);       // PartyUInfo
+            buffer.Write(merchantIdHash, 0, merchantIdHash.Length); // PartyVInfo
 
             return SHA256.HashData(buffer.ToArray());
         }
