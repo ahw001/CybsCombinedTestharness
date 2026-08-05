@@ -9,6 +9,11 @@
 
 <title>Apple Pay Checkout</title>
 
+@* Apple's own SDK — supplies the <apple-pay-button> custom element used below. Without it that
+   tag is an unknown element with no shadow DOM and renders as a 0x0 invisible box, so there is
+   literally nothing for the customer to tap. Loaded from Apple's CDN exactly as their integration
+   guide specifies (same pattern as the CyberSource Flex/Unified Checkout scripts on their pages). *@
+<script crossorigin="anonymous" src="https://applepay.cdn-apple.com/jsapi/v1/apple-pay-sdk.js"></script>
 <script src="Components/Pages/ApplePay/ApplePayCheckout.razor.js"></script>
 
 @* Apple's official Apple Pay button chrome (-webkit-appearance: -apple-pay-button) is OS-rendered
@@ -85,10 +90,21 @@
                         Apple Pay implementation plan.
                     </div>
                 }
+                else if (appleButtonChromeAvailable)
+                {
+                    @* No @onclick — the click is wired natively in ApplePayCheckout.razor.js so that
+                       ApplePaySession is constructed inside the user-gesture handler. See the
+                       USER-GESTURE CONSTRAINT note at the top of that file. *@
+                    <apple-pay-button id="@ApplePayButtonElementId" buttonstyle="black" type="plain" locale="en"
+                                       style="cursor:pointer;"></apple-pay-button>
+                }
                 else
                 {
-                    <apple-pay-button id="applePayButton" buttonstyle="black" type="plain" locale="en"
-                                       @onclick="StartApplePaySession" style="cursor:pointer;"></apple-pay-button>
+                    @* Apple's SDK never loaded (CDN blocked/offline), so the official button chrome
+                       is unavailable. ApplePaySession itself is still present, so fall back to a
+                       plain Bootstrap button rather than rendering an invisible element. *@
+                    <button id="@ApplePayButtonElementId" type="button" class="btn btn-dark">Pay with Apple Pay</button>
+                    <div class="form-text">Apple's button styling could not be loaded; using a fallback button.</div>
                 }
 
                 @if (statusMessage is not null)
@@ -122,6 +138,8 @@
     private SessionTransJson sessionTransJson = new();
 
     private bool applePayAvailable = false;
+    private bool appleButtonChromeAvailable = false;
+    private bool buttonWireAttempted = false;
     private string? error;
     private string? statusMessage;
 
@@ -130,6 +148,10 @@
     // CyberSource merchant/country codes for the payment sheet.
     private const string MerchantIdentifier = "merchant.com.ahw001.applepaycheckout";
     private const string CountryCode = "US";
+
+    // Shared by the official Apple button and the fallback button — attachApplePayButton looks the
+    // element up by this id, so whichever one renders gets the native click listener.
+    private const string ApplePayButtonElementId = "applePayButton";
 
     protected override void OnInitialized()
     {
@@ -151,6 +173,13 @@
             try
             {
                 applePayAvailable = await JSRuntime.InvokeAsync<bool>("applePayIsAvailable");
+
+                if (applePayAvailable)
+                {
+                    // Waits for Apple's SDK to define <apple-pay-button>; false means the CDN never
+                    // answered and the page should render the Bootstrap fallback button instead.
+                    appleButtonChromeAvailable = await JSRuntime.InvokeAsync<bool>("applePayButtonElementReady", 5000);
+                }
             }
             catch
             {
@@ -158,6 +187,35 @@
             }
 
             StateHasChanged();
+            return;
+        }
+
+        // The button only exists once the form has been submitted (readyForApplePay). Wire the
+        // native click listener as soon as it is in the DOM — the session must be created from the
+        // real user gesture, which a Blazor @onclick round trip cannot provide.
+        if (readyForApplePay && applePayAvailable && !buttonWireAttempted)
+        {
+            buttonWireAttempted = true;
+
+            try
+            {
+                var amount = (b2CCustomer.TotalAmount ?? 0m).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+
+                var wired = await JSRuntime.InvokeAsync<bool>("attachApplePayButton", _dotNetRef,
+                    ApplePayButtonElementId, amount, b2CCustomer.Currency ?? "USD", CountryCode,
+                    MerchantIdentifier, "TestCC Processor");
+
+                if (!wired)
+                {
+                    statusMessage = "Apple Pay button could not be initialized.";
+                    StateHasChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                statusMessage = "Apple Pay button could not be initialized: " + ex.Message;
+                StateHasChanged();
+            }
         }
     }
 
@@ -189,19 +247,20 @@
         StateHasChanged();
     }
 
-    private async Task StartApplePaySession()
-    {
-        statusMessage = null;
-        var amount = (b2CCustomer.TotalAmount ?? 0m).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-
-        await JSRuntime.InvokeVoidAsync("beginApplePaySession", _dotNetRef,
-            amount, b2CCustomer.Currency ?? "USD", CountryCode, MerchantIdentifier, "TestCC Processor");
-    }
-
     [JSInvokable]
     public void OnApplePayUnavailable()
     {
         applePayAvailable = false;
+        StateHasChanged();
+    }
+
+    // Surfaced from JS when ApplePaySession cannot be constructed or begun (e.g. WebKit's
+    // InvalidAccessError for a lost user gesture, or an invalid payment request). Rendered on the
+    // page so the failure is visible on a device without a Web Inspector attached.
+    [JSInvokable]
+    public void OnApplePaySessionError(string message)
+    {
+        statusMessage = "Apple Pay could not start: " + message;
         StateHasChanged();
     }
 
