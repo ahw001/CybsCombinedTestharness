@@ -67,6 +67,14 @@
         // Not the same certificate/purpose as MleSettings (CyberSource System 1/2 MLE).
         public string? PaymentProcessingCertPath { get; set; }
         public string? PaymentProcessingKeyPath { get; set; }
+
+        // Additional Payment Processing private keys, tried in order after the primary above.
+        // A merchant can have several Payment Processing Certificates registered at once, and
+        // Apple encrypts each token to exactly one of them — so during a rotation every key that
+        // Apple might still be using has to stay deployed, or decryption breaks the moment Apple
+        // switches. Retire an old key from this list once no tokens are encrypted to it.
+        public string[]? AdditionalPaymentProcessingKeyPaths { get; set; }
+
         public string? KeyPass { get; set; }
         public string? MerchantIdentifier { get; set; }
 

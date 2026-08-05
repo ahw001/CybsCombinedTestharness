@@ -366,7 +366,8 @@ CybsClass.Cybersource.Authentication.ApplePayCredentials.Initialize(
     applePayCfg.MerchantIdentifier,
     applePayCfg.MerchantIdentityCertPath,
     applePayCfg.MerchantIdentityCertPass,
-    applePayCfg.InitiativeContext
+    applePayCfg.InitiativeContext,
+    applePayCfg.AdditionalPaymentProcessingKeyPaths
 );
 
 // Initialize URL endpoint method lookup (single copy at the host content root serves

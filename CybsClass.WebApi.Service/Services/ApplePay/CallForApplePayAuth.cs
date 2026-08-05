@@ -47,10 +47,44 @@ namespace CybsClass.WebApi.Service.Services.ApplePay
                     throw new ArgumentException("applePayPaymentData is required for an Apple Pay authorization.");
 
                 // 1. MERCHANT DECRYPTION — decrypt the Apple Pay EC_v1 payload locally.
-                string decryptedJson = ApplePayDecryptor.Decrypt(
-                    b2cCustomerDto.ApplePayPaymentData,
-                    ApplePayCredentials.PaymentProcessingPrivateKey!,
-                    ApplePayCredentials.MerchantIdentifier ?? string.Empty);
+                // A merchant can have more than one Payment Processing Certificate registered, and
+                // Apple encrypts each token to exactly one of them. Try every loaded key: AES-GCM
+                // is authenticated, so a key that does not match fails its tag check and throws
+                // rather than yielding plausible-looking garbage — which makes "try the next one"
+                // safe. Without this, a certificate rotation silently breaks decryption the moment
+                // Apple switches which certificate it encrypts to.
+                var decryptionKeys = ApplePayCredentials.PaymentProcessingPrivateKeys;
+                if (decryptionKeys.Count == 0)
+                    throw new InvalidOperationException("No Apple Pay Payment Processing private key is loaded — cannot decrypt the payment token.");
+
+                string? decryptedJson = null;
+                Exception? lastDecryptError = null;
+
+                for (int i = 0; i < decryptionKeys.Count; i++)
+                {
+                    try
+                    {
+                        decryptedJson = ApplePayDecryptor.Decrypt(
+                            b2cCustomerDto.ApplePayPaymentData,
+                            decryptionKeys[i],
+                            ApplePayCredentials.MerchantIdentifier ?? string.Empty);
+
+                        if (i > 0)
+                            Console.WriteLine($"[ApplePay] Decrypted with Payment Processing key #{i + 1} of {decryptionKeys.Count} (primary key did not match this token).");
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        lastDecryptError = ex;
+                        Console.WriteLine($"[ApplePay] Payment Processing key #{i + 1} of {decryptionKeys.Count} did not decrypt this token: {ex.Message}");
+                    }
+                }
+
+                if (decryptedJson is null)
+                    throw new InvalidOperationException(
+                        $"Apple Pay token could not be decrypted with any of the {decryptionKeys.Count} loaded Payment Processing key(s). "
+                        + "The token was likely encrypted to a certificate whose key is not deployed. "
+                        + $"Last error: {lastDecryptError?.Message}", lastDecryptError);
 
                 LastDecryptedTokenJson = decryptedJson;
 
