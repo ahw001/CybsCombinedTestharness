@@ -75,17 +75,26 @@ public static class ApplePayEndpoints
                 }
                 else
                 {
+                    // These JSON types must match the client's AuthTransResponse EXACTLY, which
+                    // declares OrderId/PaymentCardId as string? but B2cCustomerId as a
+                    // non-nullable int. System.Text.Json does not coerce between JSON strings and
+                    // numbers, so emitting the wrong one makes the ENTIRE response fail to
+                    // deserialize — the client then renders "Object reference not set to an
+                    // instance of an object" on a transaction that actually succeeded at
+                    // CyberSource. Keep this block identical to the equivalent one in
+                    // WebApplication.Extensions.cs (api/authtransaction), which has always been
+                    // correct; this endpoint stringified all three until 2026-08-05.
                     if (dbResults.TryGetValue("OrderId", out var orderId))
                     {
-                        jsonNode["OrderId"] = orderId.ToString();
+                        jsonNode["OrderId"] = orderId?.ToString();
                     }
                     if (dbResults.TryGetValue("B2cCustomerId", out var b2cCustomerId))
                     {
-                        jsonNode["B2cCustomerId"] = b2cCustomerId.ToString();
+                        jsonNode["B2cCustomerId"] = Convert.ToInt32(b2cCustomerId);
                     }
                     if (dbResults.TryGetValue("ApplePayTransactionsId", out var applePayId))
                     {
-                        jsonNode["ApplePayTransactionsId"] = applePayId.ToString();
+                        jsonNode["ApplePayTransactionsId"] = applePayId?.ToString();
                     }
                 }
             }
