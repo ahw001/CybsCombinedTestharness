@@ -38,6 +38,11 @@ const string CorsPolicy = "AppCors";
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Payload-logging suppression rules (apiLogSuppression.json in the application root). Loaded
+// before anything can make an HTTP call — the hosted card-cache services fire early and are
+// among the endpoints this config exists to quieten. A missing/bad file is not fatal.
+CybsClient.Services.ApiLogging.ApiLogSuppression.Load(builder.Environment.ContentRootPath);
+
 // ------- Environment diagnostics (console only) -------
 var env = builder.Environment;
 Console.WriteLine($"[Env] ASPNETCORE_ENVIRONMENT = {env.EnvironmentName}");
@@ -452,6 +457,12 @@ app.UseCors(CorsPolicy);
 app.Use(async (context, next) =>
 {
     CybsCallContext.Reset();
+
+    // Payload-logging suppression for this request, as decided by apiLogSuppression.json (see
+    // PayloadLogContext). In the combined host the client half calls the server half over
+    // loopback HTTP, so the header travels exactly as it does when the two run split.
+    PayloadLogContext.Reset(context.Request.Headers[PayloadLogContext.HeaderName].FirstOrDefault());
+
     context.Response.OnStarting(() =>
     {
         var exchanges = CybsCallContext.GetExchanges();

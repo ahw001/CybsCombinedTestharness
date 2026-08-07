@@ -31,6 +31,11 @@ namespace CybsClient.Services.ApiLogging
         // True when the 2XX response body carried a non-null root-level "error" property —
         // the server's ErrorObject convention for application-level failures.
         public bool HasEmbeddedError { get; set; }
+        // Set when apiLogSuppression.json matched this endpoint AND the call succeeded: the
+        // payload bodies were deliberately not captured and the sidebar shows SuppressionNote
+        // in their place. Never set on a failed call — see ApiLogSuppression.
+        public bool PayloadSuppressed { get; set; }
+        public string? SuppressionNote { get; set; }
 
         // One error test for the whole entry: HTTP/transport error, embedded 2XX ErrorObject,
         // or any CyberSource exchange fault / non-2xx CyberSource status.

@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "Endpoints whose request/response PAYLOADS are omitted from API logging. The call itself is",
+    "still logged everywhere (method, URL, status, duration) — only the bodies are replaced with",
+    "a short note. Intended for high-volume reference-data reads whose payloads are pure noise.",
+    "",
+    "This file is the SINGLE source of truth for both sides. The client applies it to the",
+    "ApiLogSidebar and its own console logging, and sends X-Suppress-Payload-Log on the outgoing",
+    "request so CyberSourceServer suppresses its console payload logging for the same call.",
+    "",
+    "Suppression NEVER applies to a failed call: any non-2xx status, transport exception, or 2XX",
+    "response carrying an ErrorObject logs the full payload regardless of what is configured here,",
+    "because that is exactly when the payload is needed.",
+    "",
+    "Fields (only 'path' is required):",
+    "  path     - request path to match, e.g. \"/api/samplecards\". Case-insensitive; a trailing",
+    "             slash is ignored, so \"/api/samplecards\" also matches \"/api/samplecards/\".",
+    "  method   - HTTP method to match, or \"*\"/omitted for any.",
+    "  match    - \"prefix\" (default) or \"exact\". Prefix also covers sub-routes, so",
+    "             \"/api/PayerAuthCardSampleDatum\" covers \"/api/PayerAuthCardSampleDatum/42\".",
+    "  suppress - \"both\" (default), \"request\", or \"response\".",
+    "  note     - text shown in place of the payload. Defaults to \"success\".",
+    "",
+    "Any endpoint can be added here. Removing an entry restores full payload logging with no",
+    "code change; an absent or malformed file simply means nothing is suppressed."
+  ],
+  "endpoints": [
+    {
+      "path": "/api/samplecards",
+      "method": "GET",
+      "match": "prefix",
+      "suppress": "both",
+      "note": "success"
+    },
+    {
+      "path": "/api/tokens/sample-nt-cards",
+      "method": "GET",
+      "match": "prefix",
+      "suppress": "both",
+      "note": "success"
+    },
+    {
+      "path": "/api/PayerAuthCardSampleDatum",
+      "method": "GET",
+      "match": "prefix",
+      "suppress": "both",
+      "note": "success"
+    }
+  ]
+}

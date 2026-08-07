@@ -19,6 +19,17 @@
     }
 </button>
 
+@{
+    // Built once per render and shared by the header's "Copy all", the body markup, and the
+    // per-entry "Copy entry" builder — so every copy button emits EXACTLY the text on screen.
+    var visible = (_errorsOnly
+            ? ApiLog.Entries.Where(e => e.HasAnyError)
+            : ApiLog.Entries)
+        .Reverse()
+        .Select(BuildView)
+        .ToList();
+}
+
 @* Off-canvas panel slides in from the right *@
 <div class="offcanvas offcanvas-end api-log-offcanvas"
      tabindex="-1"
@@ -38,6 +49,13 @@
                        @bind="_errorsOnly" />
                 <label class="form-check-label small" for="apiLogErrorsOnly">Errors only</label>
             </div>
+            @* Copies every entry currently listed — i.e. the "Errors only" filter is respected.
+               TextProvider (not Text) so the whole-panel string is built on click, not on
+               every re-render. *@
+            <CopyButton TextProvider="@(() => BuildAllText(visible))"
+                        Label="the whole visible log"
+                        Caption="Copy all"
+                        CssClass="btn btn-sm btn-outline-secondary py-0 px-2 text-nowrap" />
             <button type="button"
                     class="btn btn-outline-danger btn-sm"
                     @onclick="ApiLog.Clear"
@@ -52,15 +70,6 @@
     </div>
 
     <div class="offcanvas-body p-0">
-        @{
-            var allEntries = ApiLog.Entries;
-            var visible = (_errorsOnly
-                    ? allEntries.Where(e => e.HasAnyError)
-                    : allEntries)
-                .Reverse()
-                .ToList();
-        }
-
         @if (!visible.Any())
         {
             <div class="p-3 text-muted small">
@@ -70,21 +79,11 @@
         else
         {
             <div class="accordion accordion-flush" id="apiLogAccordion">
-                @foreach (var entry in visible)
+                @foreach (var view in visible)
                 {
+                    var entry = view.Entry;
                     var collapseId = $"apiLogC_{entry.Id:N}";
                     var headingId = $"apiLogH_{entry.Id:N}";
-                    // Display rules: when the server made CyberSource call(s) and nothing errored,
-                    // the entry represents the server<->CyberSource hop — header and body show the
-                    // exchanges only. Client<->server bodies appear when there is no CyberSource
-                    // call (pure client/server traffic) or on any error condition (so the full
-                    // picture is available for diagnosis).
-                    var hasExchanges = entry.CybsExchanges is { Count: > 0 };
-                    var showClientHop = !hasExchanges || entry.HasAnyError;
-                    var firstExchange = hasExchanges ? entry.CybsExchanges![0] : null;
-                    var headerMethod = firstExchange is not null && !entry.HasAnyError ? firstExchange.HttpMethod : entry.Method;
-                    var headerUrl = firstExchange is not null && !entry.HasAnyError ? firstExchange.Url : entry.Url;
-                    var headerStatus = firstExchange is not null && !entry.HasAnyError ? firstExchange.HttpStatusCode : entry.StatusCode;
                     <div class="accordion-item border-bottom">
                         <h2 class="accordion-header" id="@headingId">
                             <button class="accordion-button collapsed py-2 px-3 small"
@@ -94,22 +93,22 @@
                                     aria-expanded="false"
                                     aria-controls="@collapseId">
                                 <span class="d-flex align-items-center gap-1 flex-wrap w-100">
-                                    @if (firstExchange is not null && !entry.HasAnyError)
+                                    @if (view.ShowCybsBadge)
                                     {
                                         <span class="badge bg-primary me-1" title="Server-to-CyberSource exchange">CYBS</span>
                                     }
-                                    <span class="badge bg-dark me-1">@headerMethod</span>
+                                    <span class="badge bg-dark me-1">@view.HeaderMethod</span>
                                     <span class="text-truncate flex-grow-1 me-1"
                                           style="max-width:180px;"
-                                          title="@headerUrl">@StripCybsHost(headerUrl)</span>
-                                    @if (hasExchanges && entry.CybsExchanges!.Count > 1)
+                                          title="@view.HeaderUrl">@StripCybsHost(view.HeaderUrl)</span>
+                                    @if (view.Exchanges.Count > 1)
                                     {
-                                        <span class="badge bg-secondary me-1">+@(entry.CybsExchanges!.Count - 1)</span>
+                                        <span class="badge bg-secondary me-1">+@(view.Exchanges.Count - 1)</span>
                                     }
-                                    @if (headerStatus.HasValue)
+                                    @if (view.HeaderStatus.HasValue)
                                     {
                                         <span class="badge @(entry.HasAnyError ? "bg-danger" : "bg-success") me-1">
-                                            @headerStatus
+                                            @view.HeaderStatus
                                         </span>
                                     }
                                     else if (entry.Kind == ApiLogKind.Error)
@@ -128,45 +127,71 @@
                              aria-labelledby="@headingId">
                             <div class="accordion-body p-2">
 
-                                @if (entry.Kind == ApiLogKind.Error && entry.StatusCode is null && entry.ErrorMessage is not null)
+                                @* Whole-entry copy: header line plus every section below, labelled.
+                                   Cannot live in the accordion header — a <button> nested inside the
+                                   collapse toggle <button> is invalid HTML and would fire the toggle. *@
+                                <div class="d-flex justify-content-end mb-2">
+                                    <CopyButton TextProvider="@(() => BuildEntryText(view))"
+                                                Label="this whole log entry"
+                                                Caption="Copy entry"
+                                                CssClass="btn btn-sm btn-outline-secondary py-0 px-2 text-nowrap" />
+                                </div>
+
+                                @if (view.TransportErrorText is not null)
                                 {
-                                    <div class="alert alert-danger py-1 px-2 small mb-2">
-                                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                                        @entry.ErrorMessage
+                                    <div class="alert alert-danger py-1 px-2 small mb-2 d-flex align-items-start justify-content-between gap-2">
+                                        <span>
+                                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                            @view.TransportErrorText
+                                        </span>
+                                        <CopyButton Text="@view.TransportErrorText" Label="the error message" />
                                     </div>
                                 }
 
-                                @if (hasExchanges)
+                                @if (entry.PayloadSuppressed)
                                 {
-                                    @foreach (var exchange in entry.CybsExchanges!)
+                                    @* Payload logging is switched off for this endpoint in
+                                       apiLogSuppression.json. No payload = no copy button; the
+                                       note itself still travels with Copy entry / Copy all. *@
+                                    <p class="mb-1 small text-muted fst-italic">
+                                        <i class="bi bi-eye-slash me-1"></i>
+                                        Payload logging suppressed for this endpoint — @view.SuppressionNoteText
+                                    </p>
+                                }
+
+                                @if (view.HasExchanges)
+                                {
+                                    @foreach (var exchange in view.Exchanges)
                                     {
-                                        var exchangeError = exchange.IsError || exchange.FaultMessage is not null;
-                                        <div class="border rounded mb-2 p-2 @(exchangeError ? "border-danger" : "")">
-                                            <p class="mb-1 small fw-semibold text-primary text-truncate" title="@exchange.Url">
-                                                <i class="bi bi-arrow-right-short"></i>@exchange.HttpMethod @exchange.Url
-                                                @if (exchange.HttpStatusCode.HasValue)
+                                        <div class="border rounded mb-2 p-2 @(exchange.IsError ? "border-danger" : "")">
+                                            <p class="mb-1 small fw-semibold text-primary text-truncate" title="@exchange.Dto.Url">
+                                                <i class="bi bi-arrow-right-short"></i>@exchange.Dto.HttpMethod @exchange.Dto.Url
+                                                @if (exchange.Dto.HttpStatusCode.HasValue)
                                                 {
-                                                    <span class="badge @(exchangeError ? "bg-danger" : "bg-success") ms-1">@exchange.HttpStatusCode</span>
+                                                    <span class="badge @(exchange.IsError ? "bg-danger" : "bg-success") ms-1">@exchange.Dto.HttpStatusCode</span>
                                                 }
                                             </p>
-                                            @if (exchange.FaultMessage is not null)
+                                            @if (exchange.Dto.FaultMessage is not null)
                                             {
-                                                <div class="alert alert-danger py-1 px-2 small mb-2">
-                                                    <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                                                    @exchange.FaultMessage
+                                                <div class="alert alert-danger py-1 px-2 small mb-2 d-flex align-items-start justify-content-between gap-2">
+                                                    <span>
+                                                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                                        @exchange.Dto.FaultMessage
+                                                    </span>
+                                                    <CopyButton Text="@exchange.Dto.FaultMessage" Label="the CyberSource fault message" />
                                                 </div>
                                             }
-                                            @if (!string.IsNullOrWhiteSpace(exchange.RequestJson))
+                                            @if (exchange.RequestText is not null)
                                             {
-                                                <p class="mb-1 small fw-semibold text-muted">CyberSource Request</p>
-                                                <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@JsonLogFormatter.DeepPretty(exchange.RequestJson)</pre>
+                                                @SectionHeader("CyberSource Request", exchange.RequestText, "text-muted")
+                                                <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@exchange.RequestText</pre>
                                             }
-                                            @if (!string.IsNullOrWhiteSpace(exchange.ResponseJson))
+                                            @if (exchange.ResponseText is not null)
                                             {
-                                                <p class="mb-1 small fw-semibold @(exchangeError ? "text-danger" : "text-muted")">
-                                                    CyberSource Response @(exchangeError ? "(error)" : "")
-                                                </p>
-                                                <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@JsonLogFormatter.DeepPretty(exchange.ResponseJson)</pre>
+                                                @SectionHeader($"CyberSource Response{(exchange.IsError ? " (error)" : "")}",
+                                                               exchange.ResponseText,
+                                                               exchange.IsError ? "text-danger" : "text-muted")
+                                                <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@exchange.ResponseText</pre>
                                             }
                                             else
                                             {
@@ -175,12 +200,12 @@
                                         </div>
                                     }
                                 }
-                                else if (entry.CybsTargetUrls is { Count: > 0 })
+                                else if (view.TargetUrlsText is not null)
                                 {
                                     @* Fallback only — exchanges normally supersede the bare URL list. *@
-                                    <p class="mb-1 small fw-semibold text-muted">CyberSource</p>
+                                    @SectionHeader("CyberSource", view.TargetUrlsText, "text-muted")
                                     <ul class="list-unstyled mb-2 small">
-                                        @foreach (var cybsUrl in entry.CybsTargetUrls)
+                                        @foreach (var cybsUrl in entry.CybsTargetUrls!)
                                         {
                                             <li class="text-truncate" title="@cybsUrl">
                                                 <i class="bi bi-arrow-right-short"></i>@cybsUrl
@@ -189,28 +214,25 @@
                                     </ul>
                                 }
 
-                                @if (showClientHop)
+                                @if (view.ClientRequestText is not null)
                                 {
-                                    @if (!string.IsNullOrWhiteSpace(entry.RequestJson))
-                                    {
-                                        <p class="mb-1 small fw-semibold text-muted">Request</p>
-                                        <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@JsonLogFormatter.DeepPretty(entry.RequestJson)</pre>
-                                    }
+                                    @SectionHeader("Request", view.ClientRequestText, "text-muted")
+                                    <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@view.ClientRequestText</pre>
+                                }
 
-                                    @if (!string.IsNullOrWhiteSpace(entry.ResponseJson))
-                                    {
-                                        <p class="mb-1 small fw-semibold @(entry.HasAnyError ? "text-danger" : "text-muted")">
-                                            Response @(entry.HasAnyError ? "(error)" : "")
-                                        </p>
-                                        <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@JsonLogFormatter.DeepPretty(hasExchanges ? StripCybersourceJson(entry.ResponseJson!) : entry.ResponseJson)</pre>
-                                    }
+                                @if (view.ClientResponseText is not null)
+                                {
+                                    @SectionHeader($"Response{(entry.HasAnyError ? " (error)" : "")}",
+                                                   view.ClientResponseText,
+                                                   entry.HasAnyError ? "text-danger" : "text-muted")
+                                    <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@view.ClientResponseText</pre>
+                                }
 
-                                    @if (!hasExchanges && !string.IsNullOrWhiteSpace(entry.CybersourceJson))
-                                    {
-                                        @* Fallback only — with exchanges present this raw body is already shown decrypted. *@
-                                        <p class="mb-1 small fw-semibold text-primary">Raw CyberSource JSON</p>
-                                        <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@JsonLogFormatter.DeepPretty(entry.CybersourceJson)</pre>
-                                    }
+                                @if (view.RawCybersourceText is not null)
+                                {
+                                    @* Fallback only — with exchanges present this raw body is already shown decrypted. *@
+                                    @SectionHeader("Raw CyberSource JSON", view.RawCybersourceText, "text-primary")
+                                    <pre class="bg-light border rounded p-2 small overflow-auto api-log-pre">@view.RawCybersourceText</pre>
                                 }
 
                             </div>
@@ -237,6 +259,218 @@
     public void Dispose()
     {
         ApiLog.OnChange -= OnApiLogChanged;
+    }
+
+    // Every log section renders through this so a section can never ship without its copy
+    // button (the API Log Sidebar convention in CLAUDE.md). The button is handed the SAME
+    // string the <pre> below it renders — never a re-formatted equivalent.
+    private RenderFragment SectionHeader(string title, string? copyText, string labelCss) =>
+    @<div class="d-flex align-items-center justify-content-between gap-2">
+        <p class="mb-1 small fw-semibold @labelCss">@title</p>
+        <CopyButton Text="@copyText" Label="@title" />
+    </div>;
+
+    // ── Per-entry view model ────────────────────────────────────────────────────────────────
+    // Display text is computed ONCE per entry per render and reused by the markup, the
+    // "Copy entry" builder and the "Copy all" builder. That is what guarantees the clipboard
+    // and the screen can never drift apart, and it also replaces the old repeated
+    // DeepPretty(...) calls inside the markup.
+
+    private sealed class ExchangeView
+    {
+        public CybsExchangeDto Dto { get; init; } = default!;
+        public bool IsError { get; init; }
+        public string? RequestText { get; init; }
+        public string? ResponseText { get; init; }
+    }
+
+    private sealed class EntryView
+    {
+        public ApiLogEntry Entry { get; init; } = default!;
+        public bool HasExchanges { get; init; }
+        public List<ExchangeView> Exchanges { get; } = new();
+        public string? TransportErrorText { get; set; }
+        public string? TargetUrlsText { get; set; }
+        public string? ClientRequestText { get; set; }
+        public string? ClientResponseText { get; set; }
+        public string? RawCybersourceText { get; set; }
+        public bool ShowCybsBadge { get; set; }
+        public string HeaderMethod { get; set; } = string.Empty;
+        public string HeaderUrl { get; set; } = string.Empty;
+        public int? HeaderStatus { get; set; }
+
+        public string SuppressionNoteText =>
+            string.IsNullOrWhiteSpace(Entry.SuppressionNote) ? "success" : Entry.SuppressionNote!;
+    }
+
+    // Display rules (unchanged): when the server made CyberSource call(s) and nothing errored,
+    // the entry represents the server<->CyberSource hop — header and body show the exchanges
+    // only. Client<->server bodies appear when there is no CyberSource call (pure client/server
+    // traffic) or on any error condition, so the full picture is available for diagnosis.
+    private static EntryView BuildView(ApiLogEntry entry)
+    {
+        var hasExchanges = entry.CybsExchanges is { Count: > 0 };
+        var showClientHop = !hasExchanges || entry.HasAnyError;
+
+        var view = new EntryView { Entry = entry, HasExchanges = hasExchanges };
+
+        if (hasExchanges)
+        {
+            foreach (var x in entry.CybsExchanges!)
+            {
+                view.Exchanges.Add(new ExchangeView
+                {
+                    Dto = x,
+                    IsError = x.IsError || x.FaultMessage is not null,
+                    RequestText = string.IsNullOrWhiteSpace(x.RequestJson)
+                        ? null
+                        : JsonLogFormatter.DeepPretty(x.RequestJson),
+                    ResponseText = string.IsNullOrWhiteSpace(x.ResponseJson)
+                        ? null
+                        : JsonLogFormatter.DeepPretty(x.ResponseJson)
+                });
+            }
+        }
+        else if (entry.CybsTargetUrls is { Count: > 0 })
+        {
+            view.TargetUrlsText = string.Join(Environment.NewLine, entry.CybsTargetUrls);
+        }
+
+        if (entry.Kind == ApiLogKind.Error && entry.StatusCode is null && entry.ErrorMessage is not null)
+        {
+            view.TransportErrorText = entry.ErrorMessage;
+        }
+
+        if (showClientHop)
+        {
+            if (!string.IsNullOrWhiteSpace(entry.RequestJson))
+            {
+                view.ClientRequestText = JsonLogFormatter.DeepPretty(entry.RequestJson);
+            }
+
+            if (!string.IsNullOrWhiteSpace(entry.ResponseJson))
+            {
+                view.ClientResponseText = JsonLogFormatter.DeepPretty(
+                    hasExchanges ? StripCybersourceJson(entry.ResponseJson!) : entry.ResponseJson);
+            }
+
+            if (!hasExchanges && !string.IsNullOrWhiteSpace(entry.CybersourceJson))
+            {
+                view.RawCybersourceText = JsonLogFormatter.DeepPretty(entry.CybersourceJson);
+            }
+        }
+
+        var first = view.Exchanges.FirstOrDefault();
+        var useCybsHeader = first is not null && !entry.HasAnyError;
+        view.ShowCybsBadge = useCybsHeader;
+        view.HeaderMethod = useCybsHeader ? first!.Dto.HttpMethod : entry.Method;
+        view.HeaderUrl = useCybsHeader ? first!.Dto.Url : entry.Url;
+        view.HeaderStatus = useCybsHeader ? first!.Dto.HttpStatusCode : entry.StatusCode;
+
+        return view;
+    }
+
+    // ── Composite clipboard payloads ────────────────────────────────────────────────────────
+
+    private static string BuildEntryText(EntryView view)
+    {
+        var entry = view.Entry;
+        var sb = new StringBuilder();
+
+        var status = view.HeaderStatus?.ToString()
+                     ?? (entry.Kind == ApiLogKind.Error ? "ERR" : "-");
+
+        sb.AppendLine($"=== {view.HeaderMethod} {view.HeaderUrl} {status} · {entry.DurationMs} ms · {entry.Timestamp:yyyy-MM-dd HH:mm:ss} ===");
+
+        if (entry.PayloadSuppressed)
+        {
+            AppendSection(sb, "-- Payload logging suppressed for this endpoint --", view.SuppressionNoteText);
+        }
+
+        if (view.TransportErrorText is not null)
+        {
+            AppendSection(sb, "-- Transport Error --", view.TransportErrorText);
+        }
+
+        for (var i = 0; i < view.Exchanges.Count; i++)
+        {
+            var x = view.Exchanges[i];
+            sb.AppendLine();
+            sb.AppendLine($"-- CyberSource Exchange {i + 1}/{view.Exchanges.Count}: {x.Dto.HttpMethod} {x.Dto.Url} {x.Dto.HttpStatusCode?.ToString() ?? "-"} --");
+
+            if (x.Dto.FaultMessage is not null)
+            {
+                AppendSection(sb, "- Fault -", x.Dto.FaultMessage);
+            }
+
+            if (x.RequestText is not null)
+            {
+                AppendSection(sb, "- CyberSource Request -", x.RequestText);
+            }
+
+            if (x.ResponseText is not null)
+            {
+                AppendSection(sb, $"- CyberSource Response{(x.IsError ? " (error)" : "")} -", x.ResponseText);
+            }
+            else
+            {
+                sb.AppendLine();
+                sb.AppendLine("- CyberSource Response: (not captured) -");
+            }
+        }
+
+        if (view.TargetUrlsText is not null)
+        {
+            AppendSection(sb, "-- CyberSource --", view.TargetUrlsText);
+        }
+
+        if (view.ClientRequestText is not null)
+        {
+            AppendSection(sb, "-- Request --", view.ClientRequestText);
+        }
+
+        if (view.ClientResponseText is not null)
+        {
+            AppendSection(sb, $"-- Response{(entry.HasAnyError ? " (error)" : "")} --", view.ClientResponseText);
+        }
+
+        if (view.RawCybersourceText is not null)
+        {
+            AppendSection(sb, "-- Raw CyberSource JSON --", view.RawCybersourceText);
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static void AppendSection(StringBuilder sb, string title, string body)
+    {
+        sb.AppendLine();
+        sb.AppendLine(title);
+        sb.AppendLine(body);
+    }
+
+    // Newest-first, matching the on-screen order, and only what is currently listed — so the
+    // "Errors only" filter applies to the clipboard exactly as it does to the panel.
+    private static string BuildAllText(IReadOnlyList<EntryView> views)
+    {
+        if (views.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        for (var i = 0; i < views.Count; i++)
+        {
+            if (i > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine(new string('=', 78));
+                sb.AppendLine();
+            }
+            sb.AppendLine(BuildEntryText(views[i]));
+        }
+
+        return sb.ToString().TrimEnd();
     }
 
     // Display-only strip of the "cybersourceJson" duplicate (top-level or nested under

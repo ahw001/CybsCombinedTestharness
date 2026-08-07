@@ -2,6 +2,7 @@ using CybsClient.Model;
 using CybsClient.Model.CyberStore;
 using CybsClient.Model.Cybersource.Transactions;
 using CybsClient.Model.OutboundObjects;
+using CybsClient.Services.ApiLogging;
 using CybsClient.Services.DIServices;
 using CybsClient.Services.DTOs;
 using CybsClient.Services.ErrorHandling;
@@ -559,7 +560,22 @@ namespace CybsClient.Services.Utilities
                 else if (response.IsSuccessStatusCode)
                 {
                     Console.WriteLine("Request was a 200 status response from PracticaleApps.\n");
-                    Console.WriteLine($"JSON RESPONSE for {currentTransaction} = {jsonResponseNode?.ToJsonString(_logOptions) ?? jsonResponse}");
+
+                    // Payload logging suppression (apiLogSuppression.json). The call, its status
+                    // and its transaction type are still logged — only the body is replaced. The
+                    // URL is taken from the response so it reflects whichever branch above ran.
+                    var suppression = ApiLogSuppression.Match(
+                        response.RequestMessage?.Method.Method,
+                        response.RequestMessage?.RequestUri?.PathAndQuery);
+
+                    if (suppression is not null && suppression.Scope is SuppressScope.Both or SuppressScope.Response)
+                    {
+                        Console.WriteLine($"JSON RESPONSE for {currentTransaction} = {suppression.NoteText} (payload logging suppressed by apiLogSuppression.json)");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"JSON RESPONSE for {currentTransaction} = {jsonResponseNode?.ToJsonString(_logOptions) ?? jsonResponse}");
+                    }
                     Console.WriteLine("****************** CALLING GENERIC ERROR HANDLER ******************\n");
                     var basicErrorInfos = JsonErrorExtractor.ExtractErrorObjects(jsonResponse);
 

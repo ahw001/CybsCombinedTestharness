@@ -42,6 +42,18 @@ namespace CybsClient.Services.ApiLogging
 
             string method = request.Method.Method;
             string url = request.RequestUri?.PathAndQuery ?? request.RequestUri?.ToString() ?? string.Empty;
+
+            // Payload-logging suppression (apiLogSuppression.json). The rule is resolved BEFORE
+            // the send so the server can be told about it on the same request: it has no copy of
+            // the config, and this header is how the single client-side file reaches it. The
+            // decision to actually drop the payloads is made after the response, because a failed
+            // call is always logged in full.
+            var suppressionRule = ApiLogSuppression.Match(method, url);
+            if (suppressionRule is not null)
+            {
+                request.Headers.TryAddWithoutValidation(ApiLogSuppression.HeaderName, suppressionRule.HeaderValue);
+            }
+
             var sw = Stopwatch.StartNew();
 
             try
@@ -78,8 +90,12 @@ namespace CybsClient.Services.ApiLogging
                         cybersourceJson = node?["cybersourceJson"]?.GetValue<string>()
                                           ?? node?["error"]?["cybersourceJson"]?.GetValue<string>();
                         hasEmbeddedError = node is JsonObject rootObj
-                                           && rootObj.TryGetPropertyValue("error", out var errNode)
-                                           && errNode is not null;
+                                           && ((rootObj.TryGetPropertyValue("error", out var errNode) && errNode is not null)
+                                               // CyberSource's own shape, which the server passes straight
+                                               // through on some endpoints: {"errors":[{"type":"declined",...}]}
+                                               // — no root "error" property, but unmistakably a failure.
+                                               || (rootObj.TryGetPropertyValue("errors", out var errsNode)
+                                                   && errsNode is JsonArray errsArr && errsArr.Count > 0));
                     }
                     catch { /* non-fatal — responseJson wasn't parseable JSON */ }
                 }
@@ -100,6 +116,13 @@ namespace CybsClient.Services.ApiLogging
                 // ordered; one extra local round-trip per CyberSource flow. Any failure here
                 // (evicted id, fetch error, DTO error) silently degrades to the URL-list
                 // fallback — the sidebar must never break application traffic.
+                //
+                // This fetch runs even for a suppressed endpoint, and MUST: for a CyberSource
+                // decline the client hop is HTTP 200 with a body carrying no root "error", so the
+                // ONLY error signal is the exchange's own status. Skipping the fetch to save a
+                // round-trip made the suppression decision blind and silently swallowed declines
+                // (caught in live A/B testing). Suppression discards the exchanges afterwards
+                // instead — pay the round-trip, keep the error visible.
                 IReadOnlyList<CybsExchangeDto>? cybsExchanges = null;
                 if (response.Headers.TryGetValues("X-Cybs-Log-Id", out var logIdValues)
                     && Guid.TryParse(logIdValues.FirstOrDefault(), out var logId))
@@ -115,6 +138,27 @@ namespace CybsClient.Services.ApiLogging
                     catch { /* non-fatal — entry falls back to CybsTargetUrls display */ }
                 }
 
+                // Suppression applies ONLY to a call that actually succeeded. Any non-2xx status,
+                // 2XX-with-embedded-error, or failed/non-2xx CyberSource exchange logs everything,
+                // because that is precisely when the payload is worth having. This mirrors
+                // ApiLogEntry.HasAnyError — the same three signals the sidebar flags red.
+                bool anyExchangeError = cybsExchanges?.Any(x => x.IsError || x.FaultMessage is not null) ?? false;
+                bool suppressPayloads = suppressionRule is not null
+                                        && statusCode < 400
+                                        && !hasEmbeddedError
+                                        && !anyExchangeError;
+
+                if (suppressPayloads)
+                {
+                    var scope = suppressionRule!.Scope;
+                    if (scope is SuppressScope.Both or SuppressScope.Request) { requestJson = null; }
+                    if (scope is SuppressScope.Both or SuppressScope.Response) { responseJson = null; cybersourceJson = null; }
+                    // Exchange bodies are payloads too. The URL list (CybsTargetUrls) survives —
+                    // it says WHICH CyberSource endpoint was called, which is call metadata, not
+                    // a payload, and stays useful on a quietened endpoint.
+                    cybsExchanges = null;
+                }
+
                 ApiLogHub.Publish(new ApiLogEntry
                 {
                     Method = method,
@@ -126,6 +170,8 @@ namespace CybsClient.Services.ApiLogging
                     CybsTargetUrls = cybsTargetUrls,
                     CybsExchanges = cybsExchanges,
                     HasEmbeddedError = hasEmbeddedError,
+                    PayloadSuppressed = suppressPayloads,
+                    SuppressionNote = suppressPayloads ? suppressionRule!.NoteText : null,
                     DurationMs = sw.ElapsedMilliseconds,
                     Kind = ApiLogKind.Request,
                     IsError = statusCode >= 400

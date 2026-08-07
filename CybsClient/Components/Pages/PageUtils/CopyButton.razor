@@ -1,0 +1,120 @@
+@implements IDisposable
+@inject IJSRuntime JS
+
+@* Reusable copy-to-clipboard control.
+   Lives in PageUtils (already covered by Components/_Imports.razor) so any page or component
+   can use it without an extra @using. The clipboard helper it calls is loaded once globally
+   from Components/App.razor (wwwroot/js/clipboard.js) — deliberately not collocated here,
+   since this component renders many times per panel.
+
+   Mandated on every log section of Components/Layout/ApiLogSidebar.razor — see the
+   "API Log Sidebar (non-negotiable)" convention in CLAUDE.md. *@
+
+<button type="button"
+        class="@ButtonClass"
+        title="@Title"
+        aria-label="@Title"
+        disabled="@(!HasPayload)"
+        @onclick="Copy"
+        @onclick:stopPropagation="true">
+    <i class="bi @(_state == CopyState.Copied ? "bi-clipboard-check" : "bi-clipboard")"></i>
+    @if (!string.IsNullOrWhiteSpace(Caption) && _state == CopyState.Idle)
+    {
+        <span class="ms-1">@Caption</span>
+    }
+    else if (_state == CopyState.Copied)
+    {
+        <span class="ms-1">copied</span>
+    }
+    else if (_state == CopyState.Failed)
+    {
+        <span class="ms-1">copy failed</span>
+    }
+</button>
+
+@code {
+    // The exact text to place on the clipboard. Callers must pass the SAME string they render,
+    // never a re-formatted equivalent — that is what keeps copy-equals-display true.
+    [Parameter] public string? Text { get; set; }
+
+    // Lazy alternative to Text, evaluated on click instead of on every render. Use this for
+    // composite payloads (whole entry / whole panel) so a large string is not rebuilt each
+    // time the log re-renders. Ignored when Text is non-empty.
+    [Parameter] public Func<string?>? TextProvider { get; set; }
+
+    // Names the section in the tooltip / aria-label, e.g. "CyberSource Request".
+    [Parameter] public string? Label { get; set; }
+
+    // Optional visible text next to the icon (composite buttons use it; section buttons don't).
+    [Parameter] public string? Caption { get; set; }
+
+    // Optional override for callers that need different sizing or placement.
+    [Parameter] public string? CssClass { get; set; }
+
+    private enum CopyState { Idle, Copied, Failed }
+
+    private CopyState _state = CopyState.Idle;
+    private CancellationTokenSource? _resetCts;
+
+    private bool HasPayload => !string.IsNullOrEmpty(Text) || TextProvider is not null;
+
+    private string ButtonClass =>
+        CssClass ?? $"btn btn-sm py-0 px-2 border-0 text-nowrap {_state switch
+        {
+            CopyState.Copied => "btn-outline-success",
+            CopyState.Failed => "btn-outline-danger",
+            _ => "btn-outline-secondary"
+        }}";
+
+    private string Title => string.IsNullOrWhiteSpace(Label)
+        ? "Copy to clipboard"
+        : $"Copy {Label} to clipboard";
+
+    private async Task Copy()
+    {
+        var payload = !string.IsNullOrEmpty(Text) ? Text : TextProvider?.Invoke();
+
+        if (string.IsNullOrEmpty(payload))
+        {
+            return;
+        }
+
+        bool copied;
+        try
+        {
+            copied = await JS.InvokeAsync<bool>("cybsClipboard.copyText", payload);
+        }
+        catch (JSException ex)
+        {
+            Console.WriteLine($"[CopyButton] Clipboard interop failed for '{Label}': {ex.Message}");
+            copied = false;
+        }
+
+        _state = copied ? CopyState.Copied : CopyState.Failed;
+        StateHasChanged();
+
+        // Revert the indicator after a moment. Cancelled on dispose so a closed offcanvas
+        // (component gone) can never be re-rendered by a pending delay.
+        _resetCts?.Cancel();
+        _resetCts?.Dispose();
+        _resetCts = new CancellationTokenSource();
+        var token = _resetCts.Token;
+
+        try
+        {
+            await Task.Delay(1500, token);
+            _state = CopyState.Idle;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by another copy, or the component went away — nothing to do.
+        }
+    }
+
+    public void Dispose()
+    {
+        _resetCts?.Cancel();
+        _resetCts?.Dispose();
+    }
+}

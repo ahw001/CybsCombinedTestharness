@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using CybsClass.Cybersource.Models.DTOs;
 using CybsClass.EntityModels;
 using ErrorObject = CybsClass.Cybersource.Models.BaseData.ErrorObject;
+using CybsClass.WebApi.Service.Services;
 using CybsClass.WebApi.Service.Services.CcTransatcionProcessing;
 using CybsClass.WebApi.Service.Services.DBOperations;
 using CybsClass.WebApi.Service.Services.FlexUcContextProcessing;
@@ -305,11 +306,13 @@ public static class TokenEndpoints
 
         group.MapGet("/sample-nt-cards", async ([FromServices] CybsDbContext db) =>
         {
-            var options = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
             Console.WriteLine("\n[TokenEndpoints] GET /api/tokens/sample-nt-cards");
             var cards = await DBNetworkTokenTestCardServices.GetAllAsync(db);
-            // FOR CLAUDE - I WILL MANUALLY CONTROL THIS LOGGING, AS IT IS TOO VERBOSE FOR NORMAL OPERATION
-            // Console.WriteLine($"\n[TokenEndpoints] OUTBOUND: {cards.Count} network token test cards\n{JsonSerializer.Serialize(cards, options)}");
+            // Was hand-commented out as "too verbose for normal operation" — that is now a real
+            // switch instead: this endpoint is listed in CybsClient's apiLogSuppression.json, so
+            // PayloadLog prints a one-line success note. Remove it from that file to get the full
+            // payload back, with no code change here.
+            PayloadLog.Outbound($"[TokenEndpoints] OUTBOUND: {cards.Count} network token test cards", cards);
             return Results.Ok(cards);
         }).WithName("GetSampleNtCards");
 
